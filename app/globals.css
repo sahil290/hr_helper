@@ -1,0 +1,383 @@
+:root {
+  --bg: #eef1f6;
+  --surface: #ffffff;
+  --surface-muted: #f7f9fc;
+  --border: #d8dee8;
+  --text: #1c2433;
+  --muted: #5a6578;
+  --accent: #2563eb;
+  --accent-soft: #dbeafe;
+  --success: #15803d;
+  --success-soft: #dcfce7;
+  --warn: #b45309;
+  --warn-soft: #fef3c7;
+  --danger: #b91c1c;
+  --danger-soft: #fee2e2;
+  --chip-match: #ecfdf5;
+  --chip-match-border: #6ee7b7;
+  --chip-miss: #fff7ed;
+  --chip-miss-border: #fdba74;
+  --shadow: 0 1px 3px rgba(28, 36, 51, 0.08), 0 8px 24px rgba(28, 36, 51, 0.06);
+  --radius: 12px;
+  --radius-sm: 8px;
+  --font: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  max-width: 100vw;
+  margin: 0;
+  min-height: 100%;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.55;
+}
+
+a {
+  color: var(--accent);
+}
+
+/* —— Matcher layout —— */
+.matcher-page {
+  min-height: 100vh;
+  padding: 1.75rem clamp(1rem, 3vw, 2rem) 2rem;
+}
+
+.matcher-header {
+  max-width: 1280px;
+  margin: 0 auto 1.5rem;
+}
+
+.matcher-header h1 {
+  font-size: clamp(1.35rem, 2.5vw, 1.75rem);
+  font-weight: 700;
+  margin: 0 0 0.35rem;
+  letter-spacing: -0.02em;
+}
+
+.matcher-header p {
+  margin: 0;
+  color: var(--muted);
+  max-width: 52ch;
+  font-size: 0.95rem;
+}
+
+.matcher-grid {
+  display: grid;
+  gap: 1.25rem;
+  max-width: 1280px;
+  margin: 0 auto;
+  align-items: start;
+}
+
+@media (min-width: 960px) {
+  .matcher-grid {
+    grid-template-columns: minmax(320px, 1fr) minmax(360px, 1fr);
+    gap: 1.5rem;
+  }
+}
+
+.matcher-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.35rem 1.35rem 1.75rem;
+}
+
+.matcher-card h2 {
+  font-size: 1.05rem;
+  margin: 0 0 1rem;
+  font-weight: 650;
+}
+
+.matcher-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.matcher-label {
+  display: block;
+  font-weight: 650;
+  font-size: 0.9rem;
+  margin-bottom: 0.4rem;
+}
+
+.matcher-input-file {
+  width: 100%;
+  font-size: 0.9rem;
+}
+
+.matcher-textarea {
+  width: 100%;
+  min-height: 220px;
+  padding: 0.75rem 0.85rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.92rem;
+  resize: vertical;
+}
+
+.matcher-textarea:focus {
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+
+.matcher-submit {
+  padding: 0.8rem 1.2rem;
+  font-weight: 650;
+  font-size: 0.98rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.matcher-submit:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.matcher-submit:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.matcher-alert {
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  border: 1px solid #fecaca;
+  color: var(--danger);
+  font-size: 0.92rem;
+}
+
+/* Results column — sticky on desktop so analysis stays in view */
+.matcher-results-wrap {
+  position: relative;
+}
+
+@media (min-width: 960px) {
+  .matcher-results-sticky {
+    position: sticky;
+    top: 1rem;
+    align-self: start;
+    max-height: calc(100vh - 2rem);
+    display: flex;
+    flex-direction: column;
+    /* Scroll the whole analysis card when tall — avoids clipping chips at bottom */
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
+
+.matcher-results-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  /* Let content define height; chip boxes handle their own scroll */
+  flex: 0 1 auto;
+  min-height: 0;
+}
+
+.matcher-score-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem 1.5rem;
+}
+
+.matcher-score-badge {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+.matcher-score-num {
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.matcher-score-label {
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.matcher-rec {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.matcher-rec-strong {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.matcher-rec-avg {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.matcher-rec-low {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.matcher-summary {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--text);
+  padding: 0.85rem 1rem;
+  background: var(--surface-muted);
+  border-radius: var(--radius-sm);
+  border-left: 4px solid var(--accent);
+}
+
+.matcher-lists-row {
+  display: grid;
+  gap: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .matcher-lists-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (min-width: 1040px) {
+  .matcher-lists-row-3 {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+}
+
+.matcher-mini h3 {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 0 0.4rem;
+  font-weight: 700;
+}
+
+.matcher-mini ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.88rem;
+  color: var(--text);
+}
+
+.matcher-mini li {
+  margin-bottom: 0.25rem;
+}
+
+/* Skill chips — scroll inside each box; section does not clip */
+.matcher-skills-section {
+  display: grid;
+  gap: 0.75rem;
+}
+
+@media (min-width: 960px) {
+  .matcher-skills-section {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.matcher-skill-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.matcher-skill-col h3 {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 0 0.45rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.matcher-chip-scroll {
+  min-height: 6.5rem;
+  max-height: 200px;
+  overflow-y: auto;
+  /* Extra bottom padding so last row of chips / borders are not clipped */
+  padding: 0.5rem 0.5rem 0.75rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 0.45rem;
+}
+
+@media (min-width: 960px) {
+  .matcher-chip-scroll {
+    max-height: min(32vh, 240px);
+  }
+}
+
+.matcher-chip {
+  display: inline-block;
+  padding: 0.25rem 0.55rem;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.matcher-chip-match {
+  background: var(--chip-match);
+  border: 1px solid var(--chip-match-border);
+  color: #065f46;
+}
+
+.matcher-chip-miss {
+  background: var(--chip-miss);
+  border: 1px solid var(--chip-miss-border);
+  color: #9a3412;
+}
+
+.matcher-placeholder {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.matcher-empty-results {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+  color: var(--muted);
+  font-size: 0.92rem;
+  text-align: center;
+  padding: 1rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+}

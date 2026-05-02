@@ -36,11 +36,11 @@ export default function Home() {
     setResult(null);
 
     if (!file) {
-      setError("Please choose a resume file (PDF or DOCX).");
+      setError("Please upload the candidate's resume (PDF or DOCX).");
       return;
     }
     if (!jobDescription.trim()) {
-      setError("Please paste a job description.");
+      setError("Please paste the role's job description.");
       return;
     }
 
@@ -84,21 +84,22 @@ export default function Home() {
   return (
     <main className="matcher-page">
       <header className="matcher-header">
-        <h1>Resume – Job Description Matcher</h1>
+        <h1>Candidate screening</h1>
         <p>
-          Upload your resume and paste a job description. Analysis uses{" "}
-          <strong>Llama 3.3 70B</strong> on Groq for a structured fit score,
-          skills alignment, and concise strengths and gaps.
+          For <strong>HR and hiring teams</strong>: upload a candidate resume and
+          the open role&apos;s job description. Analysis uses{" "}
+          <strong>Llama 3.3 70B</strong> on Groq—fit score, skill alignment,
+          interview prompts, and screening notes for internal use.
         </p>
       </header>
 
       <div className="matcher-grid">
         <section className="matcher-card">
-          <h2>Inputs</h2>
+          <h2>Candidate &amp; role</h2>
           <form className="matcher-form" onSubmit={handleSubmit}>
             <div>
               <label className="matcher-label" htmlFor="resume">
-                Resume (PDF or DOCX)
+                Candidate resume (PDF or DOCX)
               </label>
               <input
                 id="resume"
@@ -117,7 +118,7 @@ export default function Home() {
 
             <div>
               <label className="matcher-label" htmlFor="jd">
-                Job description
+                Job description for this role
               </label>
               <textarea
                 id="jd"
@@ -131,7 +132,7 @@ export default function Home() {
                   setResult(null);
                   setError(null);
                 }}
-                placeholder="Paste the full job description here…"
+                placeholder="Paste the full JD for the requisition you are screening…"
               />
             </div>
 
@@ -140,7 +141,7 @@ export default function Home() {
               className="matcher-submit"
               disabled={loading}
             >
-              {loading ? "Analyzing with Groq…" : "Analyze match"}
+              {loading ? "Running screening…" : "Run screening"}
             </button>
           </form>
         </section>
@@ -149,12 +150,13 @@ export default function Home() {
           <section
             className={`matcher-card ${result ? "matcher-results-sticky" : ""}`}
           >
-            <h2>Analysis</h2>
+            <h2>Screening summary</h2>
 
             {!result && !error && (
               <div className="matcher-empty-results">
-                Results appear here next to your inputs—run an analysis to see
-                score, summary, and skill chips without scrolling the whole page.
+                Screening output appears here beside the inputs—run a screening to
+                see fit score, narrative summary, and skill alignment (panel scrolls
+                internally if needed).
               </div>
             )}
 
@@ -168,7 +170,7 @@ export default function Home() {
               <div className="matcher-results-body">
                 <div className="matcher-score-row">
                   <div className="matcher-score-badge">
-                    <span className="matcher-score-label">Match score</span>
+                    <span className="matcher-score-label">Role fit score</span>
                     <span className="matcher-score-num">{result.score}%</span>
                   </div>
                   <span className={recClass(result.recommendation)}>
@@ -184,7 +186,7 @@ export default function Home() {
                   <div className="matcher-lists-row">
                     {result.strengths.length > 0 && (
                       <div className="matcher-mini">
-                        <h3>Strengths</h3>
+                        <h3>Reasons to advance</h3>
                         <ul>
                           {result.strengths.map((s, i) => (
                             <li key={`${i}-${s}`}>{s}</li>
@@ -194,7 +196,7 @@ export default function Home() {
                     )}
                     {result.gaps.length > 0 && (
                       <div className="matcher-mini">
-                        <h3>Gaps to address</h3>
+                        <h3>Gaps vs. role</h3>
                         <ul>
                           {result.gaps.map((s, i) => (
                             <li key={`${i}-${s}`}>{s}</li>
@@ -211,7 +213,7 @@ export default function Home() {
                   <div className="matcher-lists-row matcher-lists-row-3">
                     {result.riskFlags.length > 0 && (
                       <div className="matcher-mini">
-                        <h3>Risk flags</h3>
+                        <h3>Hiring risks</h3>
                         <ul>
                           {result.riskFlags.map((s, i) => (
                             <li key={`risk-${i}-${s}`}>{s}</li>
@@ -221,7 +223,7 @@ export default function Home() {
                     )}
                     {result.interviewQuestions.length > 0 && (
                       <div className="matcher-mini">
-                        <h3>Interview questions</h3>
+                        <h3>Suggested interview probes</h3>
                         <ul>
                           {result.interviewQuestions.map((s, i) => (
                             <li key={`iq-${i}-${s}`}>{s}</li>
@@ -231,7 +233,7 @@ export default function Home() {
                     )}
                     {result.improvementPlan.length > 0 && (
                       <div className="matcher-mini">
-                        <h3>Improvement plan</h3>
+                        <h3>HR next steps</h3>
                         <ul>
                           {result.improvementPlan.map((s, i) => (
                             <li key={`plan-${i}-${s}`}>{s}</li>
@@ -245,7 +247,7 @@ export default function Home() {
                 <div className="matcher-skills-section">
                   <div className="matcher-skill-col">
                     <h3>
-                      In resume &amp; JD ({result.matchedSkills.length})
+                      Aligned with JD ({result.matchedSkills.length})
                     </h3>
                     <div className="matcher-chip-scroll">
                       {result.matchedSkills.length === 0 ? (
@@ -260,7 +262,7 @@ export default function Home() {
                     </div>
                   </div>
                   <div className="matcher-skill-col">
-                    <h3>Missing or weak ({result.missingSkills.length})</h3>
+                    <h3>Missing or weak vs. JD ({result.missingSkills.length})</h3>
                     <div className="matcher-chip-scroll">
                       {result.missingSkills.length === 0 ? (
                         <p className="matcher-placeholder">None listed</p>

@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Resume – Job Matcher",
-  description: "Compare your resume to a job description",
+  title: "HR Candidate Screener",
+  description:
+    "Screen candidates: compare a resume to your job description with structured hiring insights.",
 };
 
 export default function RootLayout({

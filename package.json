@@ -4,12 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:clean": "node scripts/dev-clean.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "check:push": "node scripts/pre-push-check.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.105.1",
     "groq-sdk": "^0.15.0",
     "mammoth": "^1.9.0",
     "next": "^15.1.0",

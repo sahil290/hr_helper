@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { supabase } from "../lib/supabase";
+
 
 type AnalyzeResponse = {
   score: number;
@@ -15,6 +17,54 @@ type AnalyzeResponse = {
   riskFlags: string[];
 };
 
+type RoleFitResponse = {
+  bestFitRole: string;
+  bestFitScore: number;
+  roleMatches: { role: string; score: number; reason: string }[];
+  summary: string;
+  strengths: string[];
+  concerns: string[];
+  recommendedDepartments: string[];
+};
+
+type ProfileLink = {
+  id: string;
+  platform: string;
+  url: string;
+  label: string;
+};
+
+type PipelineItem = {
+  id: string;
+  name: string;
+  role: string;
+  stage: string;
+  score: number;
+  summary: string;
+  created_at?: string;
+};
+
+const PIPELINE_STAGES = [
+  { id: "new", name: "New", icon: "✨" },
+  { id: "screened", name: "Screened", icon: "🔍" },
+  { id: "interview", name: "Interview", icon: "💬" },
+  { id: "offered", name: "Offered", icon: "📄" },
+  { id: "hired", name: "Hired", icon: "🎉" },
+];
+
+const PLATFORMS = [
+  { id: "linkedin", name: "LinkedIn", icon: "in" },
+  { id: "naukri", name: "Naukri", icon: "N" },
+  { id: "indeed", name: "Indeed", icon: "I" },
+  { id: "glassdoor", name: "Glassdoor", icon: "G" },
+  { id: "wellfound", name: "Wellfound", icon: "W" },
+  { id: "upwork", name: "Upwork", icon: "Up" },
+  { id: "foundit", name: "Foundit", icon: "F" },
+  { id: "monster", name: "Monster", icon: "M" },
+  { id: "hired", name: "Hired", icon: "H" },
+  { id: "generic", name: "Other", icon: "🔗" },
+];
+
 type ErrorBody = { error?: string };
 
 function recClass(rec: string): string {
@@ -24,11 +74,270 @@ function recClass(rec: string): string {
 }
 
 export default function Home() {
+  const [activeSection, setActiveSection] = useState<
+    "screening" | "rolefit" | "profiles" | "pipeline" | "comparison" | "peer-ranking"
+  >("screening");
+  const [isDarkMode, setIsDarkMode] = useState(false);
   const [jobDescription, setJobDescription] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
+  const [roleFile, setRoleFile] = useState<File | null>(null);
+  const [roleLoading, setRoleLoading] = useState(false);
+  const [roleError, setRoleError] = useState<string | null>(null);
+  const [roleResult, setRoleResult] = useState<RoleFitResponse | null>(null);
+
+  // Comparison State
+  const [comparisonFiles, setComparisonFiles] = useState<File[]>([]);
+  const [comparisonJobDesc, setComparisonJobDesc] = useState("");
+  const [comparisonLoading, setComparisonLoading] = useState(false);
+  const [comparisonResult, setComparisonResult] = useState<any[]>([]);
+
+  // Peer Ranking State
+  const [peerRankFiles, setPeerRankFiles] = useState<File[]>([]);
+  const [peerRankRole, setPeerRankRole] = useState("");
+  const [peerRankLoading, setPeerRankLoading] = useState(false);
+  const [peerRankResult, setPeerRankResult] = useState<any>(null);
+
+  // Profiles State
+  const [profiles, setProfiles] = useState<ProfileLink[]>([]);
+  const [newPlatform, setNewPlatform] = useState("linkedin");
+  const [newUrl, setNewUrl] = useState("");
+  const [newLabel, setNewLabel] = useState("");
+
+  // Auth State
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [password, setPassword] = useState("");
+  const [loginError, setLoginError] = useState(false);
+
+  // Pipeline State
+  const [pipelineItems, setPipelineItems] = useState<PipelineItem[]>([]);
+  const [isAddingToPipeline, setIsAddingToPipeline] = useState(false);
+  const [addingId, setAddingId] = useState<string | null>(null);
+
+  // Theme and Session Setup
+  useEffect(() => {
+    const auth = sessionStorage.getItem("hr-auth");
+    if (auth === "true") setIsAuthenticated(true);
+    
+    const savedTheme = localStorage.getItem("hr-theme");
+    if (savedTheme === "dark") setIsDarkMode(true);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("hr-theme", isDarkMode ? "dark" : "light");
+    if (isDarkMode) {
+      document.body.classList.add("dark-theme");
+    } else {
+      document.body.classList.remove("dark-theme");
+    }
+  }, [isDarkMode]);
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password === "HR@2026") {
+      setIsAuthenticated(true);
+      sessionStorage.setItem("hr-auth", "true");
+      setLoginError(false);
+    } else {
+      setLoginError(true);
+    }
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    sessionStorage.removeItem("hr-auth");
+  };
+
+  // Load profiles from localStorage
+  // Load profiles from Supabase on mount
+  useEffect(() => {
+    async function loadProfiles() {
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (data && !error) {
+          setProfiles(data);
+          localStorage.setItem("hr_profiles", JSON.stringify(data));
+        } else if (error) {
+          console.warn("Supabase fetch failed, using localStorage:", error);
+          const saved = localStorage.getItem("hr_profiles");
+          if (saved) setProfiles(JSON.parse(saved));
+        }
+      } catch (e) {
+        console.error("Failed to sync with Supabase", e);
+        const saved = localStorage.getItem("hr_profiles");
+        if (saved) setProfiles(JSON.parse(saved));
+      }
+    }
+    loadProfiles();
+  }, []);
+
+  // Pipeline Logic
+  useEffect(() => {
+    async function loadPipeline() {
+      const { data, error } = await supabase
+        .from('pipeline')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (data && !error) {
+        setPipelineItems(data);
+      }
+    }
+    if (isAuthenticated) loadPipeline();
+  }, [isAuthenticated]);
+
+  const updateStage = async (id: string, newStage: string) => {
+    const updated = pipelineItems.map(item => 
+      item.id === id ? { ...item, stage: newStage } : item
+    );
+    setPipelineItems(updated);
+
+    const { error } = await supabase
+      .from('pipeline')
+      .update({ stage: newStage })
+      .eq('id', id);
+    
+    if (error) console.error("Pipeline update error:", error);
+  };
+
+  const addToPipeline = async (name: string, role: string, score: number, summary: string, sourceId: string) => {
+    setAddingId(sourceId);
+    const newItem = {
+      name,
+      role,
+      stage: "new",
+      score,
+      summary
+    };
+
+    try {
+      const { data, error } = await supabase.from('pipeline').insert([newItem]).select();
+      if (error) {
+        console.error("❌ Pipeline Insert Error:", JSON.stringify(error, null, 2));
+      } else if (data) {
+        setPipelineItems([data[0], ...pipelineItems]);
+      }
+    } finally {
+      setTimeout(() => setAddingId(null), 1000); // Visual feedback
+    }
+  };
+
+  const deletePipelineItem = async (id: string) => {
+    setPipelineItems(pipelineItems.filter(i => i.id !== id));
+    const { error } = await supabase.from('pipeline').delete().eq('id', id);
+    if (error) console.error("Pipeline delete error:", error);
+  };
+
+  const handleComparisonSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (comparisonFiles.length < 2) return alert("Please select at least 2 resumes.");
+    if (!comparisonJobDesc) return alert("Please enter the job description.");
+
+    setComparisonLoading(true);
+    setComparisonResult([]);
+
+    try {
+      // For each file, run analysis
+      const results = [];
+      for (const file of comparisonFiles) {
+        const formData = new FormData();
+        formData.append("resume", file);
+        formData.append("jobDescription", comparisonJobDesc);
+
+        const res = await fetch("/api/analyze", { method: "POST", body: formData });
+        const data = await res.json();
+        results.push({ name: file.name, ...data });
+      }
+      setComparisonResult(results);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setComparisonLoading(false);
+    }
+  };
+
+  const handlePeerRankSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (peerRankFiles.length < 2) return alert("Select at least 2 resumes.");
+    if (!peerRankRole) return alert("Enter the target role.");
+
+    setPeerRankLoading(true);
+    setPeerRankResult(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("role", peerRankRole);
+      peerRankFiles.forEach(f => formData.append("resumes", f));
+
+      const res = await fetch("/api/peer-rank", { method: "POST", body: formData });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setPeerRankResult(data);
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setPeerRankLoading(false);
+    }
+  };
+
+  const addProfileLink = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newUrl.trim()) return;
+
+    const newLink: ProfileLink = {
+      id: crypto.randomUUID(),
+      platform: newPlatform,
+      url: newUrl.startsWith("http") ? newUrl : `https://${newUrl}`,
+      label: newLabel.trim() || newUrl,
+    };
+
+    // Optimistic Update
+    const updated = [newLink, ...profiles];
+    setProfiles(updated);
+    localStorage.setItem("hr_profiles", JSON.stringify(updated));
+
+    // Save to Supabase
+    try {
+      const { error } = await supabase.from('profiles').insert([
+        {
+          id: newLink.id,
+          platform: newLink.platform,
+          url: newLink.url,
+          label: newLink.label
+        }
+      ]);
+      if (error) console.error("Supabase insert error:", error);
+    } catch (err) {
+      console.error("Supabase error:", err);
+    }
+
+    setNewUrl("");
+    setNewLabel("");
+  };
+
+  const deleteLink = async (id: string) => {
+    const updated = profiles.filter((p) => p.id !== id);
+    setProfiles(updated);
+    localStorage.setItem("hr_profiles", JSON.stringify(updated));
+
+    try {
+      const { error } = await supabase.from('profiles').delete().eq('id', id);
+      if (error) console.error("Supabase delete error:", error);
+    } catch (err) {
+      console.error("Supabase error:", err);
+    }
+  };
+
+  const openAll = (platformId: string) => {
+    const links = profiles.filter((p) => p.platform === platformId);
+    links.forEach((l) => window.open(l.url, "_blank"));
+  };
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -81,206 +390,849 @@ export default function Home() {
     }
   }
 
+  async function handleRoleFitSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setRoleError(null);
+    setRoleResult(null);
+
+    if (!roleFile) {
+      setRoleError("Please upload the candidate's resume (PDF or DOCX).");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("resume", roleFile);
+
+    setRoleLoading(true);
+    try {
+      const res = await fetch("/api/role-fit", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data: RoleFitResponse & ErrorBody = await res.json();
+      if (!res.ok) {
+        setRoleError(data.error || `Request failed (${res.status})`);
+        return;
+      }
+
+      setRoleResult({
+        bestFitRole: data.bestFitRole,
+        bestFitScore: data.bestFitScore,
+        roleMatches: data.roleMatches ?? [],
+        summary: data.summary ?? "",
+        strengths: data.strengths ?? [],
+        concerns: data.concerns ?? [],
+        recommendedDepartments: data.recommendedDepartments ?? [],
+      });
+    } catch {
+      setRoleError("Network error. Try again.");
+    } finally {
+      setRoleLoading(false);
+    }
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <main className="login-page">
+        <div className="login-card">
+          <div className="matcher-kicker">✨ Secure Access</div>
+          <h1>HR Intelligence Suite</h1>
+          <p>Please enter your access password to continue.</p>
+          <form onSubmit={handleLogin} className="matcher-form">
+            <div className="input-group">
+              <input
+                type="password"
+                placeholder="Enter password..."
+                value={password || ""}
+                onChange={(e) => setPassword(e.target.value)}
+                className={loginError ? "input-error" : ""}
+                required
+              />
+              <button type="submit" className="matcher-submit">
+                Access Dashboard
+              </button>
+            </div>
+            {loginError && (
+              <p className="error-text">Incorrect password. Please try again.</p>
+            )}
+          </form>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="matcher-page">
+      <nav className="main-navbar">
+        <div className="nav-brand">
+          <span>✨</span> HR Intelligence
+        </div>
+        <div className="matcher-nav">
+          <button
+            className={`matcher-nav-btn ${activeSection === "screening" ? "active" : ""}`}
+            onClick={() => setActiveSection("screening")}
+          >
+            Candidate Screening
+          </button>
+          <button
+            className={`matcher-nav-btn ${activeSection === "rolefit" ? "active" : ""}`}
+            onClick={() => setActiveSection("rolefit")}
+          >
+            Role-Fit Analysis
+          </button>
+          <button
+            className={`matcher-nav-btn ${activeSection === "profiles" ? "active" : ""}`}
+            onClick={() => setActiveSection("profiles")}
+          >
+            Recruiter Profiles
+          </button>
+          <button
+            className={`matcher-nav-btn ${activeSection === "pipeline" ? "active" : ""}`}
+            onClick={() => setActiveSection("pipeline")}
+          >
+            Pipeline
+          </button>
+          <button
+            className={`matcher-nav-btn ${activeSection === "comparison" ? "active" : ""}`}
+            onClick={() => setActiveSection("comparison")}
+          >
+            Comparison
+          </button>
+          <button
+            className={`matcher-nav-btn ${activeSection === "peer-ranking" ? "active" : ""}`}
+            onClick={() => setActiveSection("peer-ranking")}
+          >
+            Peer Ranking
+          </button>
+        </div>
+        <div className="nav-actions">
+          <button 
+            className="btn-theme-toggle" 
+            onClick={() => setIsDarkMode(!isDarkMode)}
+            title="Toggle Dark Mode"
+          >
+            {isDarkMode ? "☀️" : "🌙"}
+          </button>
+          <button onClick={handleLogout} className="btn-logout">
+            Logout <span>🚪</span>
+          </button>
+        </div>
+      </nav>
+
       <header className="matcher-header">
-        <h1>Candidate screening</h1>
+        <h1>
+          {activeSection === "screening" && "Candidate Screening"}
+          {activeSection === "rolefit" && "Role-Fit Analysis"}
+          {activeSection === "profiles" && "Recruiter Profiles"}
+          {activeSection === "pipeline" && "Candidate Pipeline"}
+          {activeSection === "comparison" && "Comparison Matrix"}
+          {activeSection === "peer-ranking" && "Peer Ranking arbitrator"}
+        </h1>
+        <div className="matcher-welcome">Welcome back, Parul Gupta</div>
         <p>
-          For <strong>HR and hiring teams</strong>: upload a candidate resume and
-          the open role&apos;s job description. Analysis uses{" "}
-          <strong>Llama 3.3 70B</strong> on Groq—fit score, skill alignment,
-          interview prompts, and screening notes for internal use.
+          {activeSection === "screening" && "Precision-engineered AI screening for modern talent acquisition."}
+          {activeSection === "rolefit" && "AI-powered role matching based on candidate experience."}
+          {activeSection === "profiles" && "Manage and launch your recruiter profiles across platforms."}
+          {activeSection === "pipeline" && "Track and manage your candidate journey visually."}
+          {activeSection === "comparison" && "Side-by-side analysis of top talent for your open roles."}
+          {activeSection === "peer-ranking" && "Rank candidates against each other to find the absolute best."}
         </p>
       </header>
 
-      <div className="matcher-grid">
-        <section className="matcher-card">
-          <h2>Candidate &amp; role</h2>
-          <form className="matcher-form" onSubmit={handleSubmit}>
-            <div>
-              <label className="matcher-label" htmlFor="resume">
-                Candidate resume (PDF or DOCX)
-              </label>
-              <input
-                id="resume"
-                name="resume"
-                type="file"
-                className="matcher-input-file"
-                accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                disabled={loading}
-                onChange={(ev) => {
-                  setFile(ev.target.files?.[0] ?? null);
-                  setResult(null);
-                  setError(null);
-                }}
-              />
-            </div>
 
-            <div>
-              <label className="matcher-label" htmlFor="jd">
-                Job description for this role
-              </label>
-              <textarea
-                id="jd"
-                name="jobDescription"
-                className="matcher-textarea"
-                rows={12}
-                value={jobDescription}
-                disabled={loading}
-                onChange={(ev) => {
-                  setJobDescription(ev.target.value);
-                  setResult(null);
-                  setError(null);
-                }}
-                placeholder="Paste the full JD for the requisition you are screening…"
-              />
-            </div>
+      {activeSection === "screening" ? (
+        <section className="glass-shell">
+          <div className="matcher-grid">
+            <section className="matcher-card">
+              <h2><span>📄</span> Candidate &amp; role</h2>
+              <form className="matcher-form" onSubmit={handleSubmit}>
+                <div>
+                  <label className="matcher-label" htmlFor="resume">
+                    Candidate resume (PDF or DOCX)
+                  </label>
+                  <input
+                    id="resume"
+                    name="resume"
+                    type="file"
+                    className="matcher-input-file"
+                    accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    disabled={loading}
+                    onChange={(ev) => {
+                      setFile(ev.target.files?.[0] ?? null);
+                      setResult(null);
+                      setError(null);
+                    }}
+                  />
+                </div>
 
-            <button
-              type="submit"
-              className="matcher-submit"
-              disabled={loading}
-            >
-              {loading ? "Running screening…" : "Run screening"}
-            </button>
-          </form>
+                <div>
+                  <label className="matcher-label" htmlFor="jd">
+                    Job description for this role
+                  </label>
+                  <textarea
+                    id="jd"
+                    name="jobDescription"
+                    className="matcher-textarea"
+                    rows={12}
+                    value={jobDescription || ""}
+                    disabled={loading}
+                    onChange={(ev) => {
+                      setJobDescription(ev.target.value);
+                      setResult(null);
+                      setError(null);
+                    }}
+                    placeholder="Paste the full JD for the requisition you are screening…"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="matcher-submit"
+                  disabled={loading}
+                >
+                  {loading ? "Running screening…" : "Run screening"}
+                </button>
+              </form>
+            </section>
+
+            <div className="matcher-results-wrap">
+              <section
+                className={`matcher-card ${result ? "matcher-results-sticky" : ""}`}
+              >
+                <h2><span>📊</span> Screening summary</h2>
+
+                {!result && !error && (
+                  <div className="matcher-empty-results">
+                    Screening output appears here beside the inputs—run a screening to
+                    see fit score, narrative summary, and skill alignment.
+                  </div>
+                )}
+
+                {error && (
+                  <div className="matcher-alert" role="alert">
+                    {error}
+                  </div>
+                )}
+
+                {result && (
+                  <div className="matcher-results-body">
+                    <div className="matcher-score-row">
+                      <div className="matcher-score-badge">
+                        <span className="matcher-score-label">Role fit score</span>
+                        <span className="matcher-score-num">{result.score}%</span>
+                      </div>
+                      <span className={recClass(result.recommendation)}>
+                        {result.recommendation}
+                      </span>
+                    </div>
+
+                    {result.summary ? (
+                      <p className="matcher-summary">{result.summary}</p>
+                    ) : null}
+
+                    {(result.strengths.length > 0 || result.gaps.length > 0) && (
+                      <div className="matcher-lists-row">
+                        {result.strengths.length > 0 && (
+                          <div className="matcher-mini">
+                            <h3>Reasons to advance</h3>
+                            <ul>
+                              {result.strengths.map((s, i) => (
+                                <li key={`${i}-${s}`}>{s}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {result.gaps.length > 0 && (
+                          <div className="matcher-mini">
+                            <h3>Gaps vs. role</h3>
+                            <ul>
+                              {result.gaps.map((s, i) => (
+                                <li key={`${i}-${s}`}>{s}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {(result.riskFlags.length > 0 ||
+                      result.interviewQuestions.length > 0 ||
+                      result.improvementPlan.length > 0) && (
+                      <div className="matcher-lists-row matcher-lists-row-3">
+                        {result.riskFlags.length > 0 && (
+                          <div className="matcher-mini">
+                            <h3>Hiring risks</h3>
+                            <ul>
+                              {result.riskFlags.map((s, i) => (
+                                <li key={`risk-${i}-${s}`}>{s}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {result.interviewQuestions.length > 0 && (
+                          <div className="matcher-mini">
+                            <h3>Suggested interview probes</h3>
+                            <ul>
+                              {result.interviewQuestions.map((s, i) => (
+                                <li key={`iq-${i}-${s}`}>{s}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {result.improvementPlan.length > 0 && (
+                          <div className="matcher-mini">
+                            <h3>HR next steps</h3>
+                            <ul>
+                              {result.improvementPlan.map((s, i) => (
+                                <li key={`plan-${i}-${s}`}>{s}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="matcher-skills-section">
+                      <div className="matcher-skill-col">
+                        <h3>Aligned with JD ({result.matchedSkills.length})</h3>
+                        <div className="matcher-chip-scroll">
+                          {result.matchedSkills.length === 0 ? (
+                            <p className="matcher-placeholder">None listed</p>
+                          ) : (
+                            result.matchedSkills.map((s) => (
+                              <span key={s} className="matcher-chip matcher-chip-match">
+                                {s}
+                              </span>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                      <div className="matcher-skill-col">
+                        <h3>Missing or weak vs. JD ({result.missingSkills.length})</h3>
+                        <div className="matcher-chip-scroll">
+                          {result.missingSkills.length === 0 ? (
+                            <p className="matcher-placeholder">None listed</p>
+                          ) : (
+                            result.missingSkills.map((s) => (
+                              <span key={s} className="matcher-chip matcher-chip-miss">
+                                {s}
+                              </span>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      className="matcher-submit btn-pipeline-shortcut"
+                      disabled={addingId === "screening"}
+                      onClick={() => addToPipeline("Candidate", "Screened Role", result.score, result.summary, "screening")}
+                    >
+                      {addingId === "screening" ? "⏳ Adding..." : "🚀 Add to Pipeline"}
+                    </button>
+                  </div>
+                )}
+              </section>
+            </div>
+          </div>
         </section>
+      ) : activeSection === "rolefit" ? (
+        <section className="glass-shell">
+          <div className="matcher-grid">
+            <section className="matcher-card matcher-rolefit-section">
+              <h2><span>🎯</span> Best-fit role finder</h2>
+              <p className="matcher-rolefit-note">
+                Upload only the resume. AI predicts top-fit job roles, score and HR
+                analysis.
+              </p>
 
-        <div className="matcher-results-wrap">
-          <section
-            className={`matcher-card ${result ? "matcher-results-sticky" : ""}`}
-          >
-            <h2>Screening summary</h2>
-
-            {!result && !error && (
-              <div className="matcher-empty-results">
-                Screening output appears here beside the inputs—run a screening to
-                see fit score, narrative summary, and skill alignment (panel scrolls
-                internally if needed).
-              </div>
-            )}
-
-            {error && (
-              <div className="matcher-alert" role="alert">
-                {error}
-              </div>
-            )}
-
-            {result && (
-              <div className="matcher-results-body">
-                <div className="matcher-score-row">
-                  <div className="matcher-score-badge">
-                    <span className="matcher-score-label">Role fit score</span>
-                    <span className="matcher-score-num">{result.score}%</span>
-                  </div>
-                  <span className={recClass(result.recommendation)}>
-                    {result.recommendation}
-                  </span>
+              <form className="matcher-form" onSubmit={handleRoleFitSubmit}>
+                <div>
+                  <label className="matcher-label" htmlFor="roleFitResume">
+                    Candidate resume (PDF or DOCX)
+                  </label>
+                  <input
+                    id="roleFitResume"
+                    name="roleFitResume"
+                    type="file"
+                    className="matcher-input-file"
+                    accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    disabled={roleLoading}
+                    onChange={(ev) => {
+                      setRoleFile(ev.target.files?.[0] ?? null);
+                      setRoleError(null);
+                      setRoleResult(null);
+                    }}
+                  />
                 </div>
 
-                {result.summary ? (
-                  <p className="matcher-summary">{result.summary}</p>
-                ) : null}
+                <button
+                  type="submit"
+                  className="matcher-submit"
+                  disabled={roleLoading}
+                >
+                  {roleLoading ? "Analyzing role fit…" : "Find best-fit roles"}
+                </button>
+              </form>
 
-                {(result.strengths.length > 0 || result.gaps.length > 0) && (
-                  <div className="matcher-lists-row">
-                    {result.strengths.length > 0 && (
-                      <div className="matcher-mini">
-                        <h3>Reasons to advance</h3>
-                        <ul>
-                          {result.strengths.map((s, i) => (
-                            <li key={`${i}-${s}`}>{s}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {result.gaps.length > 0 && (
-                      <div className="matcher-mini">
-                        <h3>Gaps vs. role</h3>
-                        <ul>
-                          {result.gaps.map((s, i) => (
-                            <li key={`${i}-${s}`}>{s}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
+              {roleError && (
+                <div className="matcher-alert" role="alert">
+                  {roleError}
+                </div>
+              )}
+            </section>
+
+            <div className="matcher-results-wrap">
+              <section
+                className={`matcher-card ${roleResult ? "matcher-results-sticky" : ""}`}
+              >
+                <h2><span>🔍</span> Role-fit summary</h2>
+
+                {!roleResult && !roleError && (
+                  <div className="matcher-empty-results">
+                    Upload a resume and run role-fit to see top matching roles,
+                    scores, strengths, and concerns.
                   </div>
                 )}
 
-                {(result.riskFlags.length > 0 ||
-                  result.interviewQuestions.length > 0 ||
-                  result.improvementPlan.length > 0) && (
-                  <div className="matcher-lists-row matcher-lists-row-3">
-                    {result.riskFlags.length > 0 && (
+                {roleResult && (
+                  <div className="matcher-results-body matcher-rolefit-results">
+                    <div className="matcher-score-row">
+                      <div className="matcher-score-badge">
+                        <span className="matcher-score-label">Best-fit role</span>
+                        <span className="matcher-role-title">{roleResult.bestFitRole}</span>
+                      </div>
+                      <span className="matcher-rec matcher-rec-strong">
+                        {roleResult.bestFitScore}%
+                      </span>
+                    </div>
+
+                    {roleResult.summary ? (
+                      <p className="matcher-summary">{roleResult.summary}</p>
+                    ) : null}
+
+                    <div className="matcher-lists-row">
                       <div className="matcher-mini">
-                        <h3>Hiring risks</h3>
+                        <h3>Top role matches</h3>
                         <ul>
-                          {result.riskFlags.map((s, i) => (
-                            <li key={`risk-${i}-${s}`}>{s}</li>
+                          {roleResult.roleMatches.map((item, i) => (
+                            <li key={`${item.role}-${i}`}>
+                              <strong>{item.role}</strong> ({item.score}%): {item.reason}
+                            </li>
                           ))}
                         </ul>
                       </div>
-                    )}
-                    {result.interviewQuestions.length > 0 && (
                       <div className="matcher-mini">
-                        <h3>Suggested interview probes</h3>
+                        <h3>Recommended departments</h3>
+                        <div className="matcher-chip-scroll">
+                          {roleResult.recommendedDepartments.length === 0 ? (
+                            <p className="matcher-placeholder">None listed</p>
+                          ) : (
+                            roleResult.recommendedDepartments.map((d) => (
+                              <span key={d} className="matcher-chip matcher-chip-match">
+                                {d}
+                              </span>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="matcher-lists-row">
+                      <div className="matcher-mini">
+                        <h3>Profile strengths</h3>
                         <ul>
-                          {result.interviewQuestions.map((s, i) => (
-                            <li key={`iq-${i}-${s}`}>{s}</li>
+                          {roleResult.strengths.map((s, i) => (
+                            <li key={`${s}-${i}`}>{s}</li>
                           ))}
                         </ul>
                       </div>
-                    )}
-                    {result.improvementPlan.length > 0 && (
                       <div className="matcher-mini">
-                        <h3>HR next steps</h3>
+                        <h3>Hiring concerns</h3>
                         <ul>
-                          {result.improvementPlan.map((s, i) => (
-                            <li key={`plan-${i}-${s}`}>{s}</li>
+                          {roleResult.concerns.map((s, i) => (
+                            <li key={`${s}-${i}`}>{s}</li>
                           ))}
                         </ul>
                       </div>
-                    )}
+                    </div>
+                    <button
+                      className="matcher-submit btn-pipeline-shortcut"
+                      disabled={addingId === "rolefit"}
+                      onClick={() => addToPipeline("Candidate", roleResult.bestFitRole, roleResult.bestFitScore, roleResult.summary, "rolefit")}
+                    >
+                      {addingId === "rolefit" ? "⏳ Adding..." : "🚀 Add to Pipeline"}
+                    </button>
                   </div>
                 )}
-
-                <div className="matcher-skills-section">
-                  <div className="matcher-skill-col">
-                    <h3>
-                      Aligned with JD ({result.matchedSkills.length})
-                    </h3>
-                    <div className="matcher-chip-scroll">
-                      {result.matchedSkills.length === 0 ? (
-                        <p className="matcher-placeholder">None listed</p>
-                      ) : (
-                        result.matchedSkills.map((s) => (
-                          <span key={s} className="matcher-chip matcher-chip-match">
-                            {s}
-                          </span>
-                        ))
-                      )}
-                    </div>
+              </section>
+            </div>
+          </div>
+        </section>
+      ) : activeSection === "pipeline" ? (
+        <section className="pipeline-board">
+          {PIPELINE_STAGES.map((stage) => {
+            const items = pipelineItems.filter((i) => i.stage === stage.id);
+            return (
+              <div key={stage.id} className="pipeline-column">
+                <div className="pipeline-stage-header">
+                  <span className="stage-icon">{stage.icon}</span>
+                  <div className="stage-info">
+                    <h3>{stage.name}</h3>
+                    <span className="item-count">{items.length} candidates</span>
                   </div>
-                  <div className="matcher-skill-col">
-                    <h3>Missing or weak vs. JD ({result.missingSkills.length})</h3>
-                    <div className="matcher-chip-scroll">
-                      {result.missingSkills.length === 0 ? (
-                        <p className="matcher-placeholder">None listed</p>
-                      ) : (
-                        result.missingSkills.map((s) => (
-                          <span key={s} className="matcher-chip matcher-chip-miss">
-                            {s}
-                          </span>
-                        ))
-                      )}
-                    </div>
+                </div>
+                
+                <div className="pipeline-items-list">
+                  {items.length === 0 ? (
+                    <div className="pipeline-empty">No candidates</div>
+                  ) : (
+                    items.map((item) => (
+                      <div key={item.id} className="pipeline-card">
+                        <div className="pipeline-card-header">
+                          <span className="candidate-name">{item.name}</span>
+                          <span className="candidate-score">{item.score}%</span>
+                        </div>
+                        <div className="candidate-role">{item.role}</div>
+                        <p className="candidate-summary">{item.summary}</p>
+                        
+                        <div className="pipeline-actions">
+                          <select 
+                            value={item.stage || ""} 
+                            onChange={(e) => updateStage(item.id, e.target.value)}
+                            className="stage-select"
+                          >
+                            {PIPELINE_STAGES.map(s => (
+                              <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                          </select>
+                          <button 
+                            className="btn-delete-item"
+                            onClick={() => deletePipelineItem(item.id)}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </section>
+      ) : activeSection === "comparison" ? (
+        <section className="glass-shell">
+          <div className="comparison-layout">
+            {comparisonResult.length === 0 ? (
+              <div className="matcher-card comparison-input-card">
+                <h2><span>📊</span> Multi-Candidate Comparison</h2>
+                <p className="matcher-welcome">Upload 2+ resumes to compare against one JD.</p>
+                
+                <form className="matcher-form" onSubmit={handleComparisonSubmit}>
+                  <div>
+                    <label className="matcher-label">Resumes (Select Multiple)</label>
+                    <input 
+                      type="file" 
+                      multiple 
+                      className="matcher-input-file"
+                      onChange={(e) => setComparisonFiles(Array.from(e.target.files || []))}
+                    />
                   </div>
+                  <div>
+                    <label className="matcher-label">Job Description</label>
+                    <textarea 
+                      className="matcher-textarea" 
+                      rows={6}
+                      value={comparisonJobDesc || ""}
+                      onChange={(e) => setComparisonJobDesc(e.target.value)}
+                      placeholder="Paste the job description here..."
+                    />
+                  </div>
+                  <button 
+                    type="submit" 
+                    className="matcher-submit" 
+                    disabled={comparisonLoading}
+                  >
+                    {comparisonLoading ? "Running Matrix Analysis..." : "Generate Comparison Matrix"}
+                  </button>
+                </form>
+              </div>
+            ) : (
+              <div className="matcher-card comparison-results-card">
+                <div className="comparison-header">
+                  <h2><span>✅</span> Comparison Results</h2>
+                  <button 
+                    className="btn-logout" 
+                    onClick={() => {
+                      setComparisonResult([]);
+                      setComparisonFiles([]);
+                    }}
+                  >
+                    🔄 Start New Comparison
+                  </button>
+                </div>
+                
+                <div className="comparison-table-wrap">
+                  <table className="comparison-table">
+                    <thead>
+                      <tr>
+                        <th>Metric</th>
+                        {comparisonResult.map((res, i) => (
+                          <th key={i}>{res.name}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>Match Score</td>
+                        {comparisonResult.map((res, i) => (
+                          <td key={i}><span className="comparison-score">{res.score}%</span></td>
+                        ))}
+                      </tr>
+                      <tr>
+                        <td>Recommendation</td>
+                        {comparisonResult.map((res, i) => (
+                          <td key={i} className="comparison-rec">{res.recommendation}</td>
+                        ))}
+                      </tr>
+                      <tr>
+                        <td>Top Strengths</td>
+                        {comparisonResult.map((res, i) => (
+                          <td key={i}>
+                            <ul className="comparison-list">
+                              {res.strengths.slice(0, 3).map((s: string, j: number) => <li key={j}>{s}</li>)}
+                            </ul>
+                          </td>
+                        ))}
+                      </tr>
+                      <tr>
+                        <td>Action</td>
+                        {comparisonResult.map((res, i) => (
+                          <th key={i}>
+                            <button 
+                              className="matcher-submit"
+                              disabled={addingId === `comp-${i}`}
+                              onClick={() => addToPipeline(res.name, "Compared Candidate", res.score, res.summary, `comp-${i}`)}
+                            >
+                              {addingId === `comp-${i}` ? "⏳" : "Add to Pipeline"}
+                            </button>
+                          </th>
+                        ))}
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}
-          </section>
-        </div>
-      </div>
+          </div>
+        </section>
+      ) : activeSection === "peer-ranking" ? (
+        <section className="glass-shell">
+          <div className="comparison-layout">
+            {!peerRankResult ? (
+              <div className="matcher-card comparison-input-card">
+                <h2><span>⚖️</span> Peer Ranking Arbitrator</h2>
+                <p className="matcher-welcome">Compare candidates directly to find the strongest one.</p>
+                
+                <form className="matcher-form" onSubmit={handlePeerRankSubmit}>
+                  <div>
+                    <label className="matcher-label">Target Role Title (e.g. Sales Executive)</label>
+                    <input 
+                      type="text" 
+                      className="matcher-textarea" 
+                      style={{ height: 'auto' }}
+                      value={peerRankRole || ""}
+                      onChange={(e) => setPeerRankRole(e.target.value)}
+                      placeholder="Enter role title..."
+                    />
+                  </div>
+                  <div>
+                    <label className="matcher-label">Candidate Resumes (Select 2+)</label>
+                    <input 
+                      type="file" 
+                      multiple 
+                      className="matcher-input-file"
+                      onChange={(e) => setPeerRankFiles(Array.from(e.target.files || []))}
+                    />
+                  </div>
+                  <button 
+                    type="submit" 
+                    className="matcher-submit" 
+                    disabled={peerRankLoading}
+                  >
+                    {peerRankLoading ? "Arbitrating Candidates..." : "Run Peer Ranking"}
+                  </button>
+                </form>
+              </div>
+            ) : (
+              <div className="matcher-card comparison-results-card">
+                <div className="comparison-header">
+                  <h2><span>🏆</span> Winner: {peerRankResult.overallWinner}</h2>
+                  <button 
+                    className="btn-logout" 
+                    onClick={() => {
+                      setPeerRankResult(null);
+                      setPeerRankFiles([]);
+                    }}
+                  >
+                    🔄 New Arbitration
+                  </button>
+                </div>
+                
+                <p className="matcher-summary" style={{ marginBottom: '2rem' }}>{peerRankResult.summary}</p>
+
+                <div className="comparison-table-wrap">
+                  <table className="comparison-table">
+                    <thead>
+                      <tr>
+                        <th>Rank</th>
+                        <th>Candidate</th>
+                        <th>Intelligence</th>
+                        <th>Fit Score</th>
+                        <th>AI Verdict</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {peerRankResult.rankings.map((res: any, i: number) => (
+                        <tr key={i} style={res.rank === 1 ? { background: 'var(--accent-soft)' } : {}}>
+                          <td><strong>#{res.rank}</strong></td>
+                          <td>{res.name}</td>
+                          <td><span className="comparison-score">{res.intelligenceScore}</span></td>
+                          <td><span className="comparison-score">{res.fitScore}</span></td>
+                          <td style={{ fontSize: '0.85rem' }}>{res.verdict}</td>
+                          <td>
+                            <button 
+                              className="matcher-submit"
+                              disabled={addingId === `peer-${i}`}
+                              onClick={() => addToPipeline(res.name, peerRankRole, res.fitScore, res.verdict, `peer-${i}`)}
+                            >
+                              {addingId === `peer-${i}` ? "⏳" : "Add"}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      ) : (
+        <section className="glass-shell profiles-container">
+          <div className="matcher-card profiles-add-card">
+            <h2><span>➕</span> Add new profile link</h2>
+            <form className="matcher-form" onSubmit={addProfileLink}>
+              <div className="platform-selector">
+                <label className="matcher-label">Select Platform</label>
+                <div className="platform-chips">
+                  {PLATFORMS.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      className={`platform-chip platform-${p.id} ${newPlatform === p.id ? "active" : ""}`}
+                      onClick={() => setNewPlatform(p.id)}
+                    >
+                      <span className="chip-icon">{p.icon}</span>
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="input-group">
+                <input
+                  type="text"
+                  placeholder="Profile URL (e.g. linkedin.com/in/user)"
+                  value={newUrl || ""}
+                  onChange={(e) => setNewUrl(e.target.value)}
+                  required
+                />
+                <input
+                  type="text"
+                  placeholder="Label (optional)"
+                  value={newLabel || ""}
+                  onChange={(e) => setNewLabel(e.target.value)}
+                />
+                <button type="submit" className="btn-add-link">
+                  Save Link
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <div className="profiles-grid">
+            {PLATFORMS.map((platform) => {
+              const platformLinks = profiles.filter(
+                (p) => p.platform === platform.id
+              );
+              return (
+                <div
+                  key={platform.id}
+                  className={`platform-card platform-${platform.id}`}
+                >
+                  <div className="platform-header">
+                    <span className="platform-name">
+                      <span className="platform-icon">{platform.icon}</span>
+                      {platform.name}
+                    </span>
+                    {platformLinks.length > 0 && (
+                      <span className="matcher-rec matcher-rec-strong">
+                        {platformLinks.length} saved
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="links-list">
+                    {platformLinks.length === 0 ? (
+                      <div className="empty-state">No {platform.name} links saved</div>
+                    ) : (
+                      platformLinks.map((link) => (
+                        <div key={link.id} className="link-item">
+                          <span className="link-text" title={link.url}>
+                            {link.label}
+                          </span>
+                          <div className="link-actions">
+                            <button
+                              type="button"
+                              className="btn-icon"
+                              onClick={() => window.open(link.url, "_blank")}
+                              title="Open in new tab"
+                            >
+                              ↗
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-icon delete"
+                              onClick={() => deleteLink(link.id)}
+                              title="Delete"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {platformLinks.length > 1 && (
+                    <div className="platform-actions">
+                      <button
+                        className="btn-open-all"
+                        onClick={() => openAll(platform.id)}
+                      >
+                        Open All ({platformLinks.length})
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
     </main>
   );
 }

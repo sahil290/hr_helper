@@ -15,6 +15,22 @@ export type GroqAnalysis = {
   riskFlags: string[];
 };
 
+export type RoleMatch = {
+  role: string;
+  score: number;
+  reason: string;
+};
+
+export type ResumeRoleFitAnalysis = {
+  bestFitRole: string;
+  bestFitScore: number;
+  roleMatches: RoleMatch[];
+  summary: string;
+  strengths: string[];
+  concerns: string[];
+  recommendedDepartments: string[];
+};
+
 const SYSTEM_PROMPT = `You are an expert HR and hiring manager advisor. Your audience is recruiters and hiring teams screening a candidate for a specific role.
 
 Compare the candidate's resume to the job description (JD). Output is for internal hiring use—not coaching copy for the candidate.
@@ -32,6 +48,29 @@ Return ONLY a single JSON object (no markdown, no code fences) with exactly thes
 - "riskFlags": 2–5 potential hiring concerns (short, evidence-based; flag inconsistencies or sensitive gaps only when grounded in the text).
 
 Be evidence-based: only list matchedSkills when the resume text supports them.`;
+
+const ROLE_FIT_PROMPT = `You are an expert HR talent assessor.
+
+Given ONLY a candidate resume, identify the job roles this candidate is most suitable for.
+
+Return ONLY a single JSON object with exactly these keys:
+- "bestFitRole": string (single best role title)
+- "bestFitScore": number from 0 to 100
+- "roleMatches": array of 5 objects sorted by score desc, each object:
+  - "role": string (role title)
+  - "score": number (0-100)
+  - "reason": short evidence-based reason (1 sentence)
+- "summary": 2-3 sentence HR summary of candidate profile and fit.
+- "strengths": 4-7 short bullet strings from resume evidence.
+- "concerns": 3-6 short bullet strings for hiring concerns/gaps/unknowns.
+- "recommendedDepartments": 2-5 strings (e.g. "Sales", "Customer Success", "Operations")
+
+Constraints:
+- Use only evidence from the resume text.
+- Do not invent certifications/skills.
+- SCORING RUBRIC: 90-100 (Exceptional match), 75-89 (Strong), 60-74 (Moderate), <60 (Weak).
+- BE CRITICAL: Do not default to high scores. A 92% is reserved for elite matches. If a candidate is just "okay", give a score in the 60s or 70s.
+- Keep output concise, professional, and useful for HR screening.`;
 
 const MAX_CHARS = 120_000;
 
@@ -70,6 +109,27 @@ function coerceScore(v: unknown): number {
   const n = typeof v === "number" ? v : Number(v);
   if (!Number.isFinite(n)) return 0;
   return Math.min(100, Math.max(0, Math.round(n * 100) / 100));
+}
+
+function asRoleMatches(v: unknown): RoleMatch[] {
+  if (!Array.isArray(v)) return [];
+  const out: RoleMatch[] = [];
+
+  for (const item of v) {
+    if (!item || typeof item !== "object") continue;
+    const role = typeof (item as Record<string, unknown>).role === "string"
+      ? ((item as Record<string, unknown>).role as string).trim()
+      : "";
+    const reason = typeof (item as Record<string, unknown>).reason === "string"
+      ? ((item as Record<string, unknown>).reason as string).trim()
+      : "";
+    const score = coerceScore((item as Record<string, unknown>).score);
+    if (!role) continue;
+    out.push({ role, score, reason });
+    if (out.length >= 8) break;
+  }
+
+  return out;
 }
 
 export function normalizeGroqPayload(raw: unknown): GroqAnalysis {
@@ -138,4 +198,100 @@ export async function analyzeResumeWithGroq(
 
   const parsed = parseJsonObject(content);
   return normalizeGroqPayload(parsed);
+}
+
+export function normalizeRoleFitPayload(raw: unknown): ResumeRoleFitAnalysis {
+  if (!raw || typeof raw !== "object") {
+    throw new Error("Invalid role-fit payload");
+  }
+  const o = raw as Record<string, unknown>;
+  const roleMatches = asRoleMatches(o.roleMatches).sort((a, b) => b.score - a.score);
+  const fallbackTop = roleMatches[0];
+
+  const bestFitRole =
+    typeof o.bestFitRole === "string" && o.bestFitRole.trim()
+      ? o.bestFitRole.trim()
+      : fallbackTop?.role ?? "Unknown";
+  const bestFitScore = coerceScore(o.bestFitScore ?? fallbackTop?.score ?? 0);
+  const summary =
+    typeof o.summary === "string" && o.summary.trim()
+      ? o.summary.trim()
+      : "No summary provided.";
+
+  return {
+    bestFitRole,
+    bestFitScore,
+    roleMatches,
+    summary,
+    strengths: asStringArray(o.strengths, 10),
+    concerns: asStringArray(o.concerns, 10),
+    recommendedDepartments: asStringArray(o.recommendedDepartments, 6),
+  };
+}
+
+export async function analyzeResumeRoleFitWithGroq(
+  resumeText: string,
+  apiKey: string
+): Promise<ResumeRoleFitAnalysis> {
+  const resume = truncateBlock("Resume", resumeText, MAX_CHARS - 2000);
+  const groq = new Groq({ apiKey });
+
+  const completion = await groq.chat.completions.create({
+    model: GROQ_MODEL,
+    messages: [
+      { role: "system", content: ROLE_FIT_PROMPT },
+      { role: "user", content: `RESUME:\n${resume}` },
+    ],
+    temperature: 0.4,
+    max_tokens: 3500,
+    response_format: { type: "json_object" },
+  });
+
+  const content = completion.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error("Empty response from Groq");
+  }
+
+  const parsed = parseJsonObject(content);
+  return normalizeRoleFitPayload(parsed);
+}
+
+const PEER_RANKING_PROMPT = `You are an elite talent arbitrator.
+You will be given multiple resumes for a specific role.
+Your task is to rank these candidates from best to worst based ONLY on their resume depth, intelligence, and relevant experience.
+
+Return ONLY a single JSON object with:
+- "rankings": array of objects, one for each candidate:
+  - "name": candidate name or filename
+  - "rank": integer (1 for best)
+  - "intelligenceScore": 0-100 (based on pedigree, complexity of work, and achievements)
+  - "fitScore": 0-100 (relevance to the target role)
+  - "verdict": why this candidate is in this position
+- "overallWinner": string (name of the #1 candidate)
+- "summary": 2-3 sentence overview of the group's quality.
+
+Be brutal and decisive. No ties.`;
+
+export async function analyzePeerRankingWithGroq(
+  role: string,
+  candidates: { name: string; text: string }[],
+  apiKey: string
+): Promise<any> {
+  const groq = new Groq({ apiKey });
+  const resumeContent = candidates.map((c, i) => `CANDIDATE ${i + 1} (${c.name}):\n${c.text.slice(0, 5000)}`).join("\n\n---\n\n");
+
+  const completion = await groq.chat.completions.create({
+    model: GROQ_MODEL,
+    messages: [
+      { role: "system", content: PEER_RANKING_PROMPT },
+      { role: "user", content: `TARGET ROLE: ${role}\n\nRESUMES:\n${resumeContent}` },
+    ],
+    temperature: 0.3,
+    max_tokens: 4096,
+    response_format: { type: "json_object" },
+  });
+
+  const content = completion.choices[0]?.message?.content;
+  if (!content) throw new Error("Empty response from Groq");
+  return parseJsonObject(content);
 }

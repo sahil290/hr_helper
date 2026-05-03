@@ -5,11 +5,6 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
-  if (!apiKey) {
-    return NextResponse.json({ error: "Missing GEMINI_API_KEY" }, { status: 500 });
-  }
-
   try {
     const formData = await request.formData();
     const role = formData.get("role") as string;
@@ -26,7 +21,7 @@ export async function POST(request: Request) {
       candidates.push({ name: file.name, text });
     }
 
-    const result = await analyzePeerRankingWithGemini(role, candidates, apiKey);
+    const result = await analyzePeerRankingWithGemini(role, candidates);
     return NextResponse.json(result);
   } catch (e: any) {
     console.error(e);

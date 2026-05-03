@@ -213,9 +213,10 @@ export function normalizeRoleFitPayload(raw: unknown): ResumeRoleFitAnalysis {
 
 export async function analyzeResumeWithGemini(
   resumeText: string,
-  jobDescription: string,
-  apiKey: string
+  jobDescription: string
 ): Promise<GeminiAnalysis> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY is not defined in environment");
   const half = Math.floor((MAX_CHARS - 2000) / 2);
   const jd = truncateBlock("Job description", jobDescription, half);
   const resume = truncateBlock("Resume", resumeText, half);
@@ -243,9 +244,10 @@ export async function analyzeResumeWithGemini(
 }
 
 export async function analyzeResumeRoleFitWithGemini(
-  resumeText: string,
-  apiKey: string
+  resumeText: string
 ): Promise<ResumeRoleFitAnalysis> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY is not defined in environment");
   const resume = truncateBlock("Resume", resumeText, MAX_CHARS - 2000);
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({ 
@@ -271,9 +273,10 @@ export async function analyzeResumeRoleFitWithGemini(
 
 export async function analyzePeerRankingWithGemini(
   role: string,
-  candidates: { name: string; text: string }[],
-  apiKey: string
+  candidates: { name: string; text: string }[]
 ): Promise<any> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY is not defined in environment");
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({ 
     model: GEMINI_MODEL,

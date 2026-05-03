@@ -7,17 +7,6 @@ export const runtime = "nodejs";
 const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
 
 export async function POST(request: Request) {
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
-  if (!apiKey) {
-    return NextResponse.json(
-      {
-        error:
-          "Missing GEMINI_API_KEY. Add it to .env.local.",
-      },
-      { status: 500 }
-    );
-  }
-
   try {
     const contentType = request.headers.get("content-type") || "";
     if (!contentType.includes("multipart/form-data")) {
@@ -88,8 +77,7 @@ export async function POST(request: Request) {
     try {
       const result = await analyzeResumeWithGemini(
         resumeText,
-        jobDescription,
-        apiKey
+        jobDescription
       );
       return NextResponse.json(result);
     } catch (geminiErr) {

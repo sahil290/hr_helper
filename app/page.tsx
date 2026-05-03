@@ -50,6 +50,7 @@ const PIPELINE_STAGES = [
   { id: "interview", name: "Interview", icon: "💬" },
   { id: "offered", name: "Offered", icon: "📄" },
   { id: "hired", name: "Hired", icon: "🎉" },
+  { id: "rejected", name: "Rejected", icon: "❌" },
 ];
 
 const PLATFORMS = [
@@ -286,12 +287,12 @@ export default function Home() {
     if (error) console.error("Pipeline update error:", error);
   };
 
-  const addToPipeline = async (name: string, role: string, score: number, summary: string, sourceId: string) => {
+  const addToPipeline = async (name: string, role: string, score: number, summary: string, sourceId: string, initialStage: string = "new") => {
     setAddingId(sourceId);
     const newItem = {
       name,
       role,
-      stage: "new",
+      stage: initialStage,
       score,
       summary
     };
@@ -812,13 +813,22 @@ export default function Home() {
                         </div>
                       </div>
                     </div>
-                    <button
-                      className="matcher-submit btn-pipeline-shortcut"
-                      disabled={addingId === "screening"}
-                      onClick={() => addToPipeline("Candidate", "Screened Role", result.score, result.summary, "screening")}
-                    >
-                      {addingId === "screening" ? "⏳ Adding..." : "🚀 Add to Pipeline"}
-                    </button>
+                    <div className="pipeline-shortcut-group">
+                      <button
+                        className="matcher-submit btn-pipeline-shortcut"
+                        disabled={addingId === "screening"}
+                        onClick={() => addToPipeline("Candidate", "Screened Role", result.score, result.summary, "screening")}
+                      >
+                        {addingId === "screening" ? "⏳ Adding..." : "🚀 Add to Pipeline"}
+                      </button>
+                      <button
+                        className="btn-reject-shortcut"
+                        disabled={addingId === "screening-reject"}
+                        onClick={() => addToPipeline("Candidate", "Screened Role", result.score, result.summary, "screening-reject", "rejected")}
+                      >
+                        {addingId === "screening-reject" ? "⏳" : "❌ Reject"}
+                      </button>
+                    </div>
                   </div>
                 )}
               </section>
@@ -946,13 +956,22 @@ export default function Home() {
                         </ul>
                       </div>
                     </div>
-                    <button
-                      className="matcher-submit btn-pipeline-shortcut"
-                      disabled={addingId === "rolefit"}
-                      onClick={() => addToPipeline("Candidate", roleResult.bestFitRole, roleResult.bestFitScore, roleResult.summary, "rolefit")}
-                    >
-                      {addingId === "rolefit" ? "⏳ Adding..." : "🚀 Add to Pipeline"}
-                    </button>
+                    <div className="pipeline-shortcut-group">
+                      <button
+                        className="matcher-submit btn-pipeline-shortcut"
+                        disabled={addingId === "rolefit"}
+                        onClick={() => addToPipeline("Candidate", roleResult.bestFitRole, roleResult.bestFitScore, roleResult.summary, "rolefit")}
+                      >
+                        {addingId === "rolefit" ? "⏳ Adding..." : "🚀 Add to Pipeline"}
+                      </button>
+                      <button
+                        className="btn-reject-shortcut"
+                        disabled={addingId === "rolefit-reject"}
+                        onClick={() => addToPipeline("Candidate", roleResult.bestFitRole, roleResult.bestFitScore, roleResult.summary, "rolefit-reject", "rejected")}
+                      >
+                        {addingId === "rolefit-reject" ? "⏳" : "❌ Reject"}
+                      </button>
+                    </div>
                   </div>
                 )}
               </section>
@@ -962,7 +981,9 @@ export default function Home() {
       ) : activeSection === "pipeline" ? (
         <section className="pipeline-board">
           {PIPELINE_STAGES.map((stage) => {
-            const items = pipelineItems.filter((i) => i.stage === stage.id);
+            const items = pipelineItems
+              .filter((i) => i.stage === stage.id)
+              .sort((a, b) => b.score - a.score);
             return (
               <div key={stage.id} className="pipeline-column">
                 <div className="pipeline-stage-header">
@@ -1100,15 +1121,24 @@ export default function Home() {
                       <tr>
                         <td>Action</td>
                         {comparisonResult.map((res, i) => (
-                          <th key={i}>
-                            <button 
-                              className="matcher-submit"
-                              disabled={addingId === `comp-${i}`}
-                              onClick={() => addToPipeline(res.name, "Compared Candidate", res.score, res.summary, `comp-${i}`)}
-                            >
-                              {addingId === `comp-${i}` ? "⏳" : "Add to Pipeline"}
-                            </button>
-                          </th>
+                          <td key={i}>
+                            <div className="action-cell-stack">
+                              <button 
+                                className="matcher-submit btn-mini"
+                                disabled={addingId === `comp-${i}`}
+                                onClick={() => addToPipeline(res.name, "Compared Candidate", res.score, res.summary, `comp-${i}`)}
+                              >
+                                {addingId === `comp-${i}` ? "⏳" : "Add"}
+                              </button>
+                              <button 
+                                className="btn-reject-shortcut btn-mini"
+                                disabled={addingId === `comp-rej-${i}`}
+                                onClick={() => addToPipeline(res.name, "Compared Candidate", res.score, res.summary, `comp-rej-${i}`, "rejected")}
+                              >
+                                {addingId === `comp-rej-${i}` ? "⏳" : "Reject"}
+                              </button>
+                            </div>
+                          </td>
                         ))}
                       </tr>
                     </tbody>
@@ -1195,13 +1225,22 @@ export default function Home() {
                           <td><span className={`comparison-score ${getScoreClass(res.fitScore)}`}>{res.fitScore}</span></td>
                           <td style={{ fontSize: '0.85rem' }}>{res.verdict}</td>
                           <td>
-                            <button 
-                              className="matcher-submit"
-                              disabled={addingId === `peer-${i}`}
-                              onClick={() => addToPipeline(res.name, peerRankRole, res.fitScore, res.verdict, `peer-${i}`)}
-                            >
-                              {addingId === `peer-${i}` ? "⏳" : "Add"}
-                            </button>
+                            <div className="action-cell-stack">
+                              <button 
+                                className="matcher-submit btn-mini"
+                                disabled={addingId === `peer-${i}`}
+                                onClick={() => addToPipeline(res.name, peerRankRole, res.fitScore, res.verdict, `peer-${i}`)}
+                              >
+                                {addingId === `peer-${i}` ? "⏳" : "Add"}
+                              </button>
+                              <button 
+                                className="btn-reject-shortcut btn-mini"
+                                disabled={addingId === `peer-rej-${i}`}
+                                onClick={() => addToPipeline(res.name, peerRankRole, res.fitScore, res.verdict, `peer-rej-${i}`, "rejected")}
+                              >
+                                {addingId === `peer-rej-${i}` ? "⏳" : "Reject"}
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}

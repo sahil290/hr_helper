@@ -1,13 +1,13 @@
 import { extractResumeText } from "@/lib/extract-resume-text";
-import { analyzePeerRankingWithGroq } from "@/lib/groq-analyze";
+import { analyzePeerRankingWithGemini } from "@/lib/gemini-analyze";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
-  const apiKey = process.env.GROQ_API_KEY?.trim();
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) {
-    return NextResponse.json({ error: "Missing API Key" }, { status: 500 });
+    return NextResponse.json({ error: "Missing GEMINI_API_KEY" }, { status: 500 });
   }
 
   try {
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
       candidates.push({ name: file.name, text });
     }
 
-    const result = await analyzePeerRankingWithGroq(role, candidates, apiKey);
+    const result = await analyzePeerRankingWithGemini(role, candidates, apiKey);
     return NextResponse.json(result);
   } catch (e: any) {
     console.error(e);

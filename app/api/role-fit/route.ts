@@ -1,5 +1,5 @@
 import { extractResumeText } from "@/lib/extract-resume-text";
-import { analyzeResumeRoleFitWithGroq } from "@/lib/groq-analyze";
+import { analyzeResumeRoleFitWithGemini } from "@/lib/gemini-analyze";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -7,10 +7,10 @@ export const runtime = "nodejs";
 const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
 
 export async function POST(request: Request) {
-  const apiKey = process.env.GROQ_API_KEY?.trim();
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) {
     return NextResponse.json(
-      { error: "Missing GROQ_API_KEY. Add it to .env.local." },
+      { error: "Missing GEMINI_API_KEY. Add it to .env.local." },
       { status: 500 }
     );
   }
@@ -54,7 +54,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const result = await analyzeResumeRoleFitWithGroq(resumeText, apiKey);
+    const result = await analyzeResumeRoleFitWithGemini(resumeText, apiKey);
     return NextResponse.json(result);
   } catch (e: any) {
     console.error("❌ Role-Fit API Error:", e.message || e);

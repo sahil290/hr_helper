@@ -1,5 +1,5 @@
 import { extractResumeText } from "@/lib/extract-resume-text";
-import { analyzeResumeWithGroq } from "@/lib/groq-analyze";
+import { analyzeResumeWithGemini } from "@/lib/gemini-analyze";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -7,12 +7,12 @@ export const runtime = "nodejs";
 const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
 
 export async function POST(request: Request) {
-  const apiKey = process.env.GROQ_API_KEY?.trim();
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) {
     return NextResponse.json(
       {
         error:
-          "Missing GROQ_API_KEY. Add it to .env.local (see .env.example).",
+          "Missing GEMINI_API_KEY. Add it to .env.local.",
       },
       { status: 500 }
     );
@@ -86,18 +86,18 @@ export async function POST(request: Request) {
     }
 
     try {
-      const result = await analyzeResumeWithGroq(
+      const result = await analyzeResumeWithGemini(
         resumeText,
         jobDescription,
         apiKey
       );
       return NextResponse.json(result);
-    } catch (groqErr) {
+    } catch (geminiErr) {
       const message =
-        groqErr instanceof Error ? groqErr.message : "Groq request failed";
-      console.error(groqErr);
+        geminiErr instanceof Error ? geminiErr.message : "Gemini request failed";
+      console.error(geminiErr);
       return NextResponse.json(
-        { error: message.includes("401") ? "Invalid Groq API key" : message },
+        { error: message.includes("401") ? "Invalid Gemini API key" : message },
         { status: 502 }
       );
     }

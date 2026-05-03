@@ -73,10 +73,90 @@ function recClass(rec: string): string {
   return "matcher-rec matcher-rec-low";
 }
 
+function getScoreClass(score: number): string {
+  if (score >= 80) return "score-high";
+  if (score >= 50) return "score-med";
+  return "score-low";
+}
+
+function AnalyticsDashboard({ items }: { items: PipelineItem[] }) {
+  const total = items.length;
+  const avgScore = total > 0 ? Math.round(items.reduce((acc, curr) => acc + curr.score, 0) / total) : 0;
+  const topTalent = items.filter(i => i.score >= 85).length;
+  
+  const stageStats = PIPELINE_STAGES.map(s => ({
+    ...s,
+    count: items.filter(i => i.stage === s.id).length
+  }));
+
+  return (
+    <div className="analytics-grid">
+      <div className="stats-cards">
+        <div className="stat-card">
+          <div className="stat-value">{total}</div>
+          <div className="stat-label">Total Candidates</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value" style={{ color: getScoreClass(avgScore).includes('high') ? 'var(--success)' : 'var(--warning)' }}>
+            {avgScore}%
+          </div>
+          <div className="stat-label">Avg. Match Score</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">{topTalent}</div>
+          <div className="stat-label">Top Talent (85+)</div>
+        </div>
+      </div>
+
+      <div className="charts-row">
+        <div className="matcher-card">
+          <h3>Pipeline Distribution</h3>
+          <div className="stage-bars">
+            {stageStats.map(s => (
+              <div key={s.id} className="stage-bar-item">
+                <div className="stage-bar-label">
+                  <span>{s.icon} {s.name}</span>
+                  <span>{s.count}</span>
+                </div>
+                <div className="stage-bar-bg">
+                  <div 
+                    className="stage-bar-fill" 
+                    style={{ width: `${total > 0 ? (s.count / total) * 100 : 0}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="matcher-card">
+          <h3>Score Distribution</h3>
+          <div className="score-ranges">
+             {[
+               { range: '90-100', count: items.filter(i => i.score >= 90).length, color: 'var(--success)' },
+               { range: '70-89', count: items.filter(i => i.score >= 70 && i.score < 90).length, color: 'var(--accent)' },
+               { range: '50-69', count: items.filter(i => i.score >= 50 && i.score < 70).length, color: 'var(--warning)' },
+               { range: '< 50', count: items.filter(i => i.score < 50).length, color: 'var(--danger)' },
+             ].map(r => (
+               <div key={r.range} className="score-range-item">
+                 <div className="range-label">{r.range}</div>
+                 <div className="range-bar-bg">
+                    <div className="range-bar-fill" style={{ width: `${total > 0 ? (r.count / total) * 100 : 0}%`, background: r.color }} />
+                 </div>
+                 <div className="range-count">{r.count}</div>
+               </div>
+             ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const [activeSection, setActiveSection] = useState<
-    "screening" | "rolefit" | "profiles" | "pipeline" | "comparison" | "peer-ranking"
-  >("screening");
+    "screening" | "rolefit" | "profiles" | "pipeline" | "comparison" | "peer-ranking" | "analytics"
+  >("analytics");
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [jobDescription, setJobDescription] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -436,8 +516,8 @@ export default function Home() {
     return (
       <main className="login-page">
         <div className="login-card">
-          <div className="matcher-kicker">✨ Secure Access</div>
-          <h1>HR Intelligence Suite</h1>
+          <div className="matcher-kicker">✨ AM Group Recruitment</div>
+          <h1>AM Talent Hub</h1>
           <p>Please enter your access password to continue.</p>
           <form onSubmit={handleLogin} className="matcher-form">
             <div className="input-group">
@@ -466,26 +546,20 @@ export default function Home() {
     <main className="matcher-page">
       <nav className="main-navbar">
         <div className="nav-brand">
-          <span>✨</span> HR Intelligence
+          <span>✨</span> AM Talent Hub
         </div>
         <div className="matcher-nav">
+          <button
+            className={`matcher-nav-btn ${activeSection === "analytics" ? "active" : ""}`}
+            onClick={() => setActiveSection("analytics")}
+          >
+            Analytics
+          </button>
           <button
             className={`matcher-nav-btn ${activeSection === "screening" ? "active" : ""}`}
             onClick={() => setActiveSection("screening")}
           >
-            Candidate Screening
-          </button>
-          <button
-            className={`matcher-nav-btn ${activeSection === "rolefit" ? "active" : ""}`}
-            onClick={() => setActiveSection("rolefit")}
-          >
-            Role-Fit Analysis
-          </button>
-          <button
-            className={`matcher-nav-btn ${activeSection === "profiles" ? "active" : ""}`}
-            onClick={() => setActiveSection("profiles")}
-          >
-            Recruiter Profiles
+            Screening
           </button>
           <button
             className={`matcher-nav-btn ${activeSection === "pipeline" ? "active" : ""}`}
@@ -503,7 +577,19 @@ export default function Home() {
             className={`matcher-nav-btn ${activeSection === "peer-ranking" ? "active" : ""}`}
             onClick={() => setActiveSection("peer-ranking")}
           >
-            Peer Ranking
+            Arbitration
+          </button>
+          <button
+            className={`matcher-nav-btn ${activeSection === "rolefit" ? "active" : ""}`}
+            onClick={() => setActiveSection("rolefit")}
+          >
+            Role-Fit
+          </button>
+          <button
+            className={`matcher-nav-btn ${activeSection === "profiles" ? "active" : ""}`}
+            onClick={() => setActiveSection("profiles")}
+          >
+            Profiles
           </button>
         </div>
         <div className="nav-actions">
@@ -528,15 +614,17 @@ export default function Home() {
           {activeSection === "pipeline" && "Candidate Pipeline"}
           {activeSection === "comparison" && "Comparison Matrix"}
           {activeSection === "peer-ranking" && "Peer Ranking arbitrator"}
+          {activeSection === "analytics" && "Recruitment Analytics"}
         </h1>
-        <div className="matcher-welcome">Welcome back, Parul Gupta</div>
+        <div className="matcher-welcome">AM Group Recruitment Command Center</div>
         <p>
-          {activeSection === "screening" && "Precision-engineered AI screening for modern talent acquisition."}
-          {activeSection === "rolefit" && "AI-powered role matching based on candidate experience."}
-          {activeSection === "profiles" && "Manage and launch your recruiter profiles across platforms."}
-          {activeSection === "pipeline" && "Track and manage your candidate journey visually."}
-          {activeSection === "comparison" && "Side-by-side analysis of top talent for your open roles."}
-          {activeSection === "peer-ranking" && "Rank candidates against each other to find the absolute best."}
+          {activeSection === "screening" && "Proprietary AI screening tailored for AM Group's high-performance recruitment."}
+          {activeSection === "rolefit" && "Identify the best internal or external roles for AM Group candidates."}
+          {activeSection === "profiles" && "Centralized hub for AM Group's recruiter presence across platforms."}
+          {activeSection === "pipeline" && "AM Group's visual candidate journey and stage management."}
+          {activeSection === "comparison" && "Advanced matrix for AM Group's final selection process."}
+          {activeSection === "peer-ranking" && "Arbitrate between top AM Group prospects with AI precision."}
+          {activeSection === "analytics" && "Real-time insights and bottleneck detection for AM Group talent acquisition."}
         </p>
       </header>
 
@@ -552,6 +640,7 @@ export default function Home() {
                     Candidate resume (PDF or DOCX)
                   </label>
                   <input
+                    key="screening-resume"
                     id="resume"
                     name="resume"
                     type="file"
@@ -620,7 +709,7 @@ export default function Home() {
                     <div className="matcher-score-row">
                       <div className="matcher-score-badge">
                         <span className="matcher-score-label">Role fit score</span>
-                        <span className="matcher-score-num">{result.score}%</span>
+                        <span className={`matcher-score-num ${getScoreClass(result.score)}`}>{result.score}%</span>
                       </div>
                       <span className={recClass(result.recommendation)}>
                         {result.recommendation}
@@ -752,6 +841,7 @@ export default function Home() {
                     Candidate resume (PDF or DOCX)
                   </label>
                   <input
+                    key="role-fit-resume"
                     id="roleFitResume"
                     name="roleFitResume"
                     type="file"
@@ -802,7 +892,7 @@ export default function Home() {
                         <span className="matcher-score-label">Best-fit role</span>
                         <span className="matcher-role-title">{roleResult.bestFitRole}</span>
                       </div>
-                      <span className="matcher-rec matcher-rec-strong">
+                      <span className={`matcher-rec ${getScoreClass(roleResult.bestFitScore)}`}>
                         {roleResult.bestFitScore}%
                       </span>
                     </div>
@@ -817,7 +907,7 @@ export default function Home() {
                         <ul>
                           {roleResult.roleMatches.map((item, i) => (
                             <li key={`${item.role}-${i}`}>
-                              <strong>{item.role}</strong> ({item.score}%): {item.reason}
+                              <strong>{item.role}</strong> (<span className={getScoreClass(item.score)}>{item.score}%</span>): {item.reason}
                             </li>
                           ))}
                         </ul>
@@ -933,6 +1023,7 @@ export default function Home() {
                   <div>
                     <label className="matcher-label">Resumes (Select Multiple)</label>
                     <input 
+                      key="comparison-files-input"
                       type="file" 
                       multiple 
                       className="matcher-input-file"
@@ -987,7 +1078,7 @@ export default function Home() {
                       <tr>
                         <td>Match Score</td>
                         {comparisonResult.map((res, i) => (
-                          <td key={i}><span className="comparison-score">{res.score}%</span></td>
+                          <td key={i}><span className={`comparison-score ${getScoreClass(res.score)}`}>{res.score}%</span></td>
                         ))}
                       </tr>
                       <tr>
@@ -1050,6 +1141,7 @@ export default function Home() {
                   <div>
                     <label className="matcher-label">Candidate Resumes (Select 2+)</label>
                     <input 
+                      key="peer-rank-files-input"
                       type="file" 
                       multiple 
                       className="matcher-input-file"
@@ -1099,8 +1191,8 @@ export default function Home() {
                         <tr key={i} style={res.rank === 1 ? { background: 'var(--accent-soft)' } : {}}>
                           <td><strong>#{res.rank}</strong></td>
                           <td>{res.name}</td>
-                          <td><span className="comparison-score">{res.intelligenceScore}</span></td>
-                          <td><span className="comparison-score">{res.fitScore}</span></td>
+                          <td><span className={`comparison-score ${getScoreClass(res.intelligenceScore)}`}>{res.intelligenceScore}</span></td>
+                          <td><span className={`comparison-score ${getScoreClass(res.fitScore)}`}>{res.fitScore}</span></td>
                           <td style={{ fontSize: '0.85rem' }}>{res.verdict}</td>
                           <td>
                             <button 
@@ -1119,6 +1211,10 @@ export default function Home() {
               </div>
             )}
           </div>
+        </section>
+      ) : activeSection === "analytics" ? (
+        <section className="glass-shell analytics-container">
+          <AnalyticsDashboard items={pipelineItems} />
         </section>
       ) : (
         <section className="glass-shell profiles-container">

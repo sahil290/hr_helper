@@ -1,8 +1,8 @@
-import Groq from "groq-sdk";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
-export const GROQ_MODEL = "llama-3.3-70b-versatile";
+export const GEMINI_MODEL = "gemini-2.5-flash";
 
-export type GroqAnalysis = {
+export type GeminiAnalysis = {
   score: number;
   matchedSkills: string[];
   missingSkills: string[];
@@ -35,7 +35,7 @@ const SYSTEM_PROMPT = `You are an expert HR and hiring manager advisor. Your aud
 
 Compare the candidate's resume to the job description (JD). Output is for internal hiring use—not coaching copy for the candidate.
 
-Return ONLY a single JSON object (no markdown, no code fences) with exactly these keys:
+Return ONLY a single JSON object with exactly these keys:
 - "score": number from 0 to 100 (one decimal place max). Base this on how well the candidate's experience and skills satisfy the JD (not naive word overlap).
 - "matchedSkills": array of up to 25 strings: concrete skills, tools, technologies, or qualifications from the JD that the resume clearly demonstrates. Use Title Case short phrases (e.g. "React", "REST APIs", "Bachelor's Degree").
 - "missingSkills": array of up to 25 strings: important JD requirements weak or absent from the resume. Title Case, no duplicates from matchedSkills.
@@ -72,6 +72,22 @@ Constraints:
 - BE CRITICAL: Do not default to high scores. A 92% is reserved for elite matches. If a candidate is just "okay", give a score in the 60s or 70s.
 - Keep output concise, professional, and useful for HR screening.`;
 
+const PEER_RANKING_PROMPT = `You are an elite talent arbitrator.
+You will be given multiple resumes for a specific role.
+Your task is to rank these candidates from best to worst based ONLY on their resume depth, intelligence, and relevant experience.
+
+Return ONLY a single JSON object with:
+- "rankings": array of objects, one for each candidate:
+  - "name": candidate name or filename
+  - "rank": integer (1 for best)
+  - "intelligenceScore": 0-100 (based on pedigree, complexity of work, and achievements)
+  - "fitScore": 0-100 (relevance to the target role)
+  - "verdict": why this candidate is in this position
+- "overallWinner": string (name of the #1 candidate)
+- "summary": 2-3 sentence overview of the group's quality.
+
+Be brutal and decisive. No ties.`;
+
 const MAX_CHARS = 120_000;
 
 function truncateBlock(label: string, text: string, budget: number): string {
@@ -82,13 +98,13 @@ function truncateBlock(label: string, text: string, budget: number): string {
 function parseJsonObject(content: string): unknown {
   const trimmed = content.trim();
   try {
+    // Gemini often wraps JSON in markdown code blocks
+    const jsonMatch = trimmed.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
     return JSON.parse(trimmed);
   } catch {
-    const start = trimmed.indexOf("{");
-    const end = trimmed.lastIndexOf("}");
-    if (start >= 0 && end > start) {
-      return JSON.parse(trimmed.slice(start, end + 1));
-    }
     throw new Error("Model did not return valid JSON");
   }
 }
@@ -132,7 +148,7 @@ function asRoleMatches(v: unknown): RoleMatch[] {
   return out;
 }
 
-export function normalizeGroqPayload(raw: unknown): GroqAnalysis {
+export function normalizeGeminiPayload(raw: unknown): GeminiAnalysis {
   if (!raw || typeof raw !== "object") {
     throw new Error("Invalid analysis payload");
   }
@@ -166,40 +182,6 @@ export function normalizeGroqPayload(raw: unknown): GroqAnalysis {
   };
 }
 
-export async function analyzeResumeWithGroq(
-  resumeText: string,
-  jobDescription: string,
-  apiKey: string
-): Promise<GroqAnalysis> {
-  const half = Math.floor((MAX_CHARS - 2000) / 2);
-  const jd = truncateBlock("Job description", jobDescription, half);
-  const resume = truncateBlock("Resume", resumeText, half);
-
-  const groq = new Groq({ apiKey });
-
-  const completion = await groq.chat.completions.create({
-    model: GROQ_MODEL,
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      {
-        role: "user",
-        content: `JOB DESCRIPTION:\n${jd}\n\n---\n\nRESUME:\n${resume}`,
-      },
-    ],
-    temperature: 0.25,
-    max_tokens: 4096,
-    response_format: { type: "json_object" },
-  });
-
-  const content = completion.choices[0]?.message?.content;
-  if (!content) {
-    throw new Error("Empty response from Groq");
-  }
-
-  const parsed = parseJsonObject(content);
-  return normalizeGroqPayload(parsed);
-}
-
 export function normalizeRoleFitPayload(raw: unknown): ResumeRoleFitAnalysis {
   if (!raw || typeof raw !== "object") {
     throw new Error("Invalid role-fit payload");
@@ -229,69 +211,84 @@ export function normalizeRoleFitPayload(raw: unknown): ResumeRoleFitAnalysis {
   };
 }
 
-export async function analyzeResumeRoleFitWithGroq(
+export async function analyzeResumeWithGemini(
+  resumeText: string,
+  jobDescription: string,
+  apiKey: string
+): Promise<GeminiAnalysis> {
+  const half = Math.floor((MAX_CHARS - 2000) / 2);
+  const jd = truncateBlock("Job description", jobDescription, half);
+  const resume = truncateBlock("Resume", resumeText, half);
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ 
+    model: GEMINI_MODEL,
+    generationConfig: {
+        responseMimeType: "application/json",
+    }
+  });
+
+  const prompt = `${SYSTEM_PROMPT}\n\nJOB DESCRIPTION:\n${jd}\n\n---\n\nRESUME:\n${resume}`;
+  
+  const result = await model.generateContent(prompt);
+  const response = await result.response;
+  const content = response.text();
+
+  if (!content) {
+    throw new Error("Empty response from Gemini");
+  }
+
+  const parsed = parseJsonObject(content);
+  return normalizeGeminiPayload(parsed);
+}
+
+export async function analyzeResumeRoleFitWithGemini(
   resumeText: string,
   apiKey: string
 ): Promise<ResumeRoleFitAnalysis> {
   const resume = truncateBlock("Resume", resumeText, MAX_CHARS - 2000);
-  const groq = new Groq({ apiKey });
-
-  const completion = await groq.chat.completions.create({
-    model: GROQ_MODEL,
-    messages: [
-      { role: "system", content: ROLE_FIT_PROMPT },
-      { role: "user", content: `RESUME:\n${resume}` },
-    ],
-    temperature: 0.4,
-    max_tokens: 3500,
-    response_format: { type: "json_object" },
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ 
+    model: GEMINI_MODEL,
+    generationConfig: {
+        responseMimeType: "application/json",
+    }
   });
 
-  const content = completion.choices[0]?.message?.content;
+  const prompt = `${ROLE_FIT_PROMPT}\n\nRESUME:\n${resume}`;
+
+  const result = await model.generateContent(prompt);
+  const response = await result.response;
+  const content = response.text();
+
   if (!content) {
-    throw new Error("Empty response from Groq");
+    throw new Error("Empty response from Gemini");
   }
 
   const parsed = parseJsonObject(content);
   return normalizeRoleFitPayload(parsed);
 }
 
-const PEER_RANKING_PROMPT = `You are an elite talent arbitrator.
-You will be given multiple resumes for a specific role.
-Your task is to rank these candidates from best to worst based ONLY on their resume depth, intelligence, and relevant experience.
-
-Return ONLY a single JSON object with:
-- "rankings": array of objects, one for each candidate:
-  - "name": candidate name or filename
-  - "rank": integer (1 for best)
-  - "intelligenceScore": 0-100 (based on pedigree, complexity of work, and achievements)
-  - "fitScore": 0-100 (relevance to the target role)
-  - "verdict": why this candidate is in this position
-- "overallWinner": string (name of the #1 candidate)
-- "summary": 2-3 sentence overview of the group's quality.
-
-Be brutal and decisive. No ties.`;
-
-export async function analyzePeerRankingWithGroq(
+export async function analyzePeerRankingWithGemini(
   role: string,
   candidates: { name: string; text: string }[],
   apiKey: string
 ): Promise<any> {
-  const groq = new Groq({ apiKey });
-  const resumeContent = candidates.map((c, i) => `CANDIDATE ${i + 1} (${c.name}):\n${c.text.slice(0, 5000)}`).join("\n\n---\n\n");
-
-  const completion = await groq.chat.completions.create({
-    model: GROQ_MODEL,
-    messages: [
-      { role: "system", content: PEER_RANKING_PROMPT },
-      { role: "user", content: `TARGET ROLE: ${role}\n\nRESUMES:\n${resumeContent}` },
-    ],
-    temperature: 0.3,
-    max_tokens: 4096,
-    response_format: { type: "json_object" },
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ 
+    model: GEMINI_MODEL,
+    generationConfig: {
+        responseMimeType: "application/json",
+    }
   });
 
-  const content = completion.choices[0]?.message?.content;
-  if (!content) throw new Error("Empty response from Groq");
+  const resumeContent = candidates.map((c, i) => `CANDIDATE ${i + 1} (${c.name}):\n${c.text.slice(0, 5000)}`).join("\n\n---\n\n");
+  const prompt = `${PEER_RANKING_PROMPT}\n\nTARGET ROLE: ${role}\n\nRESUMES:\n${resumeContent}`;
+
+  const result = await model.generateContent(prompt);
+  const response = await result.response;
+  const content = response.text();
+
+  if (!content) throw new Error("Empty response from Gemini");
   return parseJsonObject(content);
 }

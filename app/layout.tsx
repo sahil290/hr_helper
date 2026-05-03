@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "HR Candidate Screener",
+  title: "AM Talent Hub",
   description:
-    "Screen candidates: compare a resume to your job description with structured hiring insights.",
+    "AM Group's proprietary AI recruitment and talent analysis suite.",
 };
 
 export default function RootLayout({

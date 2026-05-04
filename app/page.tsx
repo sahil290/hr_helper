@@ -181,6 +181,9 @@ export default function Home() {
   const [peerRankLoading, setPeerRankLoading] = useState(false);
   const [peerRankResult, setPeerRankResult] = useState<any>(null);
 
+  // Provider State
+  const [provider, setProvider] = useState<"gemini" | "groq">("gemini");
+
   // Profiles State
   const [profiles, setProfiles] = useState<ProfileLink[]>([]);
   const [newPlatform, setNewPlatform] = useState("linkedin");
@@ -352,11 +355,35 @@ export default function Home() {
     setPeerRankResult(null);
 
     try {
-      const formData = new FormData();
-      formData.append("role", peerRankRole);
-      peerRankFiles.forEach(f => formData.append("resumes", f));
+      const candidates = [];
+      
+      // Step 1: Extract text from each file sequentially to avoid payload limits
+      for (const file of peerRankFiles) {
+        const formData = new FormData();
+        formData.append("file", file);
+        
+        const extractRes = await fetch("/api/extract", {
+          method: "POST",
+          body: formData,
+        });
+        
+        const extractData = await extractRes.json();
+        if (!extractRes.ok) throw new Error(extractData.error || `Failed to extract text from ${file.name}`);
+        
+        candidates.push({ 
+          name: file.name, 
+          text: extractData.text,
+          file: extractData.fileData // This will be present if isScanned is true
+        });
+      }
 
-      const res = await fetch("/api/peer-rank", { method: "POST", body: formData });
+      // Step 2: Send the extracted texts as JSON
+      const res = await fetch("/api/peer-rank", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: peerRankRole, candidates, provider }),
+      });
+
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setPeerRankResult(data);
@@ -437,6 +464,7 @@ export default function Home() {
     const formData = new FormData();
     formData.append("resume", file);
     formData.append("jobDescription", jobDescription);
+    formData.append("provider", provider);
 
     setLoading(true);
     try {
@@ -483,6 +511,7 @@ export default function Home() {
 
     const formData = new FormData();
     formData.append("resume", roleFile);
+    formData.append("provider", provider);
 
     setRoleLoading(true);
     try {
@@ -549,51 +578,64 @@ export default function Home() {
         <div className="nav-brand">
           <span>✨</span> AM Talent Hub
         </div>
-        <div className="matcher-nav">
-          <button
-            className={`matcher-nav-btn ${activeSection === "analytics" ? "active" : ""}`}
-            onClick={() => setActiveSection("analytics")}
-          >
-            Analytics
-          </button>
-          <button
-            className={`matcher-nav-btn ${activeSection === "screening" ? "active" : ""}`}
-            onClick={() => setActiveSection("screening")}
-          >
-            Screening
-          </button>
-          <button
-            className={`matcher-nav-btn ${activeSection === "pipeline" ? "active" : ""}`}
-            onClick={() => setActiveSection("pipeline")}
-          >
-            Pipeline
-          </button>
-          <button
-            className={`matcher-nav-btn ${activeSection === "comparison" ? "active" : ""}`}
-            onClick={() => setActiveSection("comparison")}
-          >
-            Comparison
-          </button>
-          <button
-            className={`matcher-nav-btn ${activeSection === "peer-ranking" ? "active" : ""}`}
-            onClick={() => setActiveSection("peer-ranking")}
-          >
-            Arbitration
-          </button>
-          <button
-            className={`matcher-nav-btn ${activeSection === "rolefit" ? "active" : ""}`}
-            onClick={() => setActiveSection("rolefit")}
-          >
-            Role-Fit
-          </button>
-          <button
-            className={`matcher-nav-btn ${activeSection === "profiles" ? "active" : ""}`}
-            onClick={() => setActiveSection("profiles")}
-          >
-            Profiles
-          </button>
-        </div>
         <div className="nav-actions">
+          {/* Module Selector */}
+          <div className="custom-dropdown">
+            <div className="dropdown-trigger">
+              <span className="dropdown-label">Module:</span>
+              <span className="dropdown-value">
+                {activeSection === 'peer-ranking' ? 'Arbitration' : 
+                 activeSection === 'rolefit' ? 'Role-Fit' :
+                 activeSection.charAt(0).toUpperCase() + activeSection.slice(1)}
+              </span>
+              <span className="dropdown-chevron">▼</span>
+            </div>
+            <div className="dropdown-menu">
+              {[
+                {id: 'analytics', label: 'Analytics'},
+                {id: 'screening', label: 'Screening'},
+                {id: 'pipeline', label: 'Pipeline'},
+                {id: 'comparison', label: 'Comparison'},
+                {id: 'peer-ranking', label: 'Arbitration'},
+                {id: 'rolefit', label: 'Role-Fit'},
+                {id: 'profiles', label: 'Profiles'}
+              ].map(opt => (
+                <div 
+                  key={opt.id} 
+                  className={`dropdown-item ${activeSection === opt.id ? 'active' : ''}`}
+                  onClick={() => setActiveSection(opt.id as any)}
+                >
+                  {opt.label}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* AI Engine Selector */}
+          <div className="custom-dropdown">
+            <div className="dropdown-trigger">
+              <span className="dropdown-label">AI Engine:</span>
+              <span className="dropdown-value">
+                {provider === 'gemini' ? 'Gemini' : 'Groq (Llama 3.3)'}
+              </span>
+              <span className="dropdown-chevron">▼</span>
+            </div>
+            <div className="dropdown-menu">
+              {[
+                {id: 'gemini', label: 'Gemini'},
+                {id: 'groq', label: 'Groq (Llama 3.3)'}
+              ].map(opt => (
+                <div 
+                  key={opt.id} 
+                  className={`dropdown-item ${provider === opt.id ? 'active' : ''}`}
+                  onClick={() => setProvider(opt.id as any)}
+                >
+                  {opt.label}
+                </div>
+              ))}
+            </div>
+          </div>
+
           <button 
             className="btn-theme-toggle" 
             onClick={() => setIsDarkMode(!isDarkMode)}

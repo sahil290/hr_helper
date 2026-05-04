@@ -1,5 +1,5 @@
 import { extractResumeText } from "@/lib/extract-resume-text";
-import { analyzeResumeRoleFitWithGemini } from "@/lib/gemini-analyze";
+import { analyzeResumeRoleFit, AIProvider } from "@/lib/ai-analyze";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -18,6 +18,7 @@ export async function POST(request: Request) {
 
     const formData = await request.formData();
     const file = formData.get("resume");
+    const provider = (formData.get("provider") as AIProvider) || "gemini";
 
     if (!(file instanceof File)) {
       return NextResponse.json(
@@ -46,7 +47,13 @@ export async function POST(request: Request) {
       );
     }
 
-    const result = await analyzeResumeRoleFitWithGemini(resumeText);
+    const isScanned = resumeText.trim().length < 50;
+    const fileData = isScanned ? {
+      data: buffer.toString("base64"),
+      mimeType: file.type || (file.name.endsWith(".pdf") ? "application/pdf" : "application/octet-stream")
+    } : undefined;
+
+    const result = await analyzeResumeRoleFit(resumeText, provider, fileData);
     return NextResponse.json(result);
   } catch (e: any) {
     console.error("❌ Role-Fit API Error:", e.message || e);

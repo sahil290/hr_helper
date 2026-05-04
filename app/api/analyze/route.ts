@@ -1,5 +1,5 @@
 import { extractResumeText } from "@/lib/extract-resume-text";
-import { analyzeResumeWithGemini } from "@/lib/gemini-analyze";
+import { analyzeResume, AIProvider } from "@/lib/ai-analyze";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -19,6 +19,7 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const file = formData.get("resume");
     const jobDescriptionRaw = formData.get("jobDescription");
+    const provider = (formData.get("provider") as AIProvider) || "gemini";
 
     if (!(file instanceof File)) {
       return NextResponse.json(
@@ -75,17 +76,25 @@ export async function POST(request: Request) {
     }
 
     try {
-      const result = await analyzeResumeWithGemini(
+      const isScanned = resumeText.trim().length < 50;
+      const fileData = isScanned ? {
+        data: buffer.toString("base64"),
+        mimeType: file.type || (file.name.endsWith(".pdf") ? "application/pdf" : "application/octet-stream")
+      } : undefined;
+
+      const result = await analyzeResume(
         resumeText,
-        jobDescription
+        jobDescription,
+        provider,
+        fileData
       );
       return NextResponse.json(result);
     } catch (geminiErr) {
       const message =
-        geminiErr instanceof Error ? geminiErr.message : "Gemini request failed";
+        geminiErr instanceof Error ? geminiErr.message : "AI request failed";
       console.error(geminiErr);
       return NextResponse.json(
-        { error: message.includes("401") ? "Invalid Gemini API key" : message },
+        { error: message.includes("401") ? "Invalid API key" : message },
         { status: 502 }
       );
     }

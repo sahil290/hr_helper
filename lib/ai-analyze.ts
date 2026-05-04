@@ -1,6 +1,9 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export const GEMINI_MODEL = "gemini-2.5-flash";
+export const GROQ_MODEL = "llama-3.3-70b-versatile";
+
+export type AIProvider = "gemini" | "groq";
 
 export type GeminiAnalysis = {
   score: number;
@@ -93,6 +96,39 @@ const MAX_CHARS = 120_000;
 function truncateBlock(label: string, text: string, budget: number): string {
   if (text.length <= budget) return text;
   return `${text.slice(0, budget)}\n\n[${label} truncated for length]`;
+}
+
+async function callGroq(prompt: string): Promise<any> {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) throw new Error("GROQ_API_KEY is not defined in environment");
+
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: GROQ_MODEL,
+      messages: [
+        { role: "system", content: "You are a helpful HR assistant that returns valid JSON only." },
+        { role: "user", content: prompt },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.1,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(`Groq API error: ${err.error?.message || res.statusText}`);
+  }
+
+  const data = await res.json();
+  const content = data.choices[0]?.message?.content;
+  if (!content) throw new Error("Empty response from Groq");
+  
+  return parseJsonObject(content);
 }
 
 function parseJsonObject(content: string): unknown {
@@ -211,16 +247,26 @@ export function normalizeRoleFitPayload(raw: unknown): ResumeRoleFitAnalysis {
   };
 }
 
-export async function analyzeResumeWithGemini(
+export async function analyzeResume(
   resumeText: string,
-  jobDescription: string
+  jobDescription: string,
+  provider: AIProvider = "gemini",
+  file?: { data: string; mimeType: string }
 ): Promise<GeminiAnalysis> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not defined in environment");
   const half = Math.floor((MAX_CHARS - 2000) / 2);
   const jd = truncateBlock("Job description", jobDescription, half);
-  const resume = truncateBlock("Resume", resumeText, half);
+  
+  if (provider === "groq") {
+    const resume = truncateBlock("Resume", resumeText, half);
+    const prompt = `${SYSTEM_PROMPT}\n\nJOB DESCRIPTION:\n${jd}\n\nRESUME:\n${resume}`;
+    const parsed = await callGroq(prompt);
+    return normalizeGeminiPayload(parsed);
+  }
 
+  // Gemini logic
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY is not defined in environment");
+  
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({ 
     model: GEMINI_MODEL,
@@ -229,9 +275,25 @@ export async function analyzeResumeWithGemini(
     }
   });
 
-  const prompt = `${SYSTEM_PROMPT}\n\nJOB DESCRIPTION:\n${jd}\n\n---\n\nRESUME:\n${resume}`;
+  let prompt = `${SYSTEM_PROMPT}\n\nJOB DESCRIPTION:\n${jd}`;
+  const parts: any[] = [];
+
+  if (file) {
+    prompt += `\n\nI have attached the resume file. Please analyze it based on the job description.`;
+    parts.push(prompt);
+    parts.push({
+      inlineData: {
+        data: file.data,
+        mimeType: file.mimeType
+      }
+    });
+  } else {
+    const resume = truncateBlock("Resume", resumeText, half);
+    prompt += `\n\nRESUME TEXT:\n${resume}`;
+    parts.push(prompt);
+  }
   
-  const result = await model.generateContent(prompt);
+  const result = await model.generateContent(parts);
   const response = await result.response;
   const content = response.text();
 
@@ -243,12 +305,21 @@ export async function analyzeResumeWithGemini(
   return normalizeGeminiPayload(parsed);
 }
 
-export async function analyzeResumeRoleFitWithGemini(
-  resumeText: string
+export async function analyzeResumeRoleFit(
+  resumeText: string,
+  provider: AIProvider = "gemini",
+  file?: { data: string; mimeType: string }
 ): Promise<ResumeRoleFitAnalysis> {
+  if (provider === "groq") {
+    const resume = truncateBlock("Resume", resumeText, MAX_CHARS - 2000);
+    const prompt = `${ROLE_FIT_PROMPT}\n\nRESUME:\n${resume}`;
+    const parsed = await callGroq(prompt);
+    return normalizeRoleFitPayload(parsed);
+  }
+
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY is not defined in environment");
-  const resume = truncateBlock("Resume", resumeText, MAX_CHARS - 2000);
+  
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({ 
     model: GEMINI_MODEL,
@@ -257,9 +328,25 @@ export async function analyzeResumeRoleFitWithGemini(
     }
   });
 
-  const prompt = `${ROLE_FIT_PROMPT}\n\nRESUME:\n${resume}`;
+  let prompt = ROLE_FIT_PROMPT;
+  const parts: any[] = [];
 
-  const result = await model.generateContent(prompt);
+  if (file) {
+    prompt += `\n\nI have attached the resume file. Please identify the best fit roles based on it.`;
+    parts.push(prompt);
+    parts.push({
+      inlineData: {
+        data: file.data,
+        mimeType: file.mimeType
+      }
+    });
+  } else {
+    const resume = truncateBlock("Resume", resumeText, MAX_CHARS - 2000);
+    prompt += `\n\nRESUME TEXT:\n${resume}`;
+    parts.push(prompt);
+  }
+
+  const result = await model.generateContent(parts);
   const response = await result.response;
   const content = response.text();
 
@@ -271,10 +358,17 @@ export async function analyzeResumeRoleFitWithGemini(
   return normalizeRoleFitPayload(parsed);
 }
 
-export async function analyzePeerRankingWithGemini(
+export async function analyzePeerRanking(
   role: string,
-  candidates: { name: string; text: string }[]
+  candidates: { name: string; text: string; file?: { data: string; mimeType: string } }[],
+  provider: AIProvider = "gemini"
 ): Promise<any> {
+  if (provider === "groq") {
+    const resumeContent = candidates.map((c, i) => `CANDIDATE ${i + 1} (${c.name}):\n${c.text.slice(0, 5000)}`).join("\n\n---\n\n");
+    const prompt = `${PEER_RANKING_PROMPT}\n\nTARGET ROLE: ${role}\n\nRESUMES:\n${resumeContent}`;
+    return await callGroq(prompt);
+  }
+
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY is not defined in environment");
   const genAI = new GoogleGenerativeAI(apiKey);
@@ -285,10 +379,26 @@ export async function analyzePeerRankingWithGemini(
     }
   });
 
-  const resumeContent = candidates.map((c, i) => `CANDIDATE ${i + 1} (${c.name}):\n${c.text.slice(0, 5000)}`).join("\n\n---\n\n");
-  const prompt = `${PEER_RANKING_PROMPT}\n\nTARGET ROLE: ${role}\n\nRESUMES:\n${resumeContent}`;
+  const parts: any[] = [];
+  let prompt = `${PEER_RANKING_PROMPT}\n\nTARGET ROLE: ${role}\n\nI have provided multiple resumes below. Some are text and some are attached files. Rank them decisively.`;
+  
+  parts.push(prompt);
 
-  const result = await model.generateContent(prompt);
+  candidates.forEach((c, i) => {
+    parts.push(`\n\n--- CANDIDATE ${i + 1} (${c.name}) ---\n`);
+    if (c.file) {
+      parts.push({
+        inlineData: {
+          data: c.file.data,
+          mimeType: c.file.mimeType
+        }
+      });
+    } else {
+      parts.push(`RESUME TEXT:\n${c.text.slice(0, 5000)}`);
+    }
+  });
+
+  const result = await model.generateContent(parts);
   const response = await result.response;
   const content = response.text();
 
